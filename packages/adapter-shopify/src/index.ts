@@ -44,6 +44,26 @@ function toBytes(body: Uint8Array | string): Uint8Array {
   return typeof body === "string" ? new TextEncoder().encode(body) : body;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Best-effort retry for the write-back path: network errors + 5xx, never 4xx. */
+async function fetchWithRetry(fetchImpl: typeof fetch, url: string, init: RequestInit, attempts = 3): Promise<Response> {
+  let last: unknown;
+  for (let i = 1; i <= attempts; i += 1) {
+    try {
+      const res = await fetchImpl(url, init);
+      if (res.status < 500) return res;
+      last = new Error(`Shopify responded ${res.status}`);
+    } catch (err) {
+      last = err;
+    }
+    if (i < attempts) await sleep(Math.min(1000 * 2 ** (i - 1), 4000) + Math.floor(Math.random() * 200));
+  }
+  throw last instanceof Error ? last : new Error("Shopify write-back failed");
+}
+
 // Tag mapping from prompt v2.0 section 11 (recommended Shopify tag mapping).
 // Business dispositions only — the agent never claims tags were applied.
 export function outcomeToTag(outcome: CallDisposition): string {
@@ -126,7 +146,7 @@ export function createShopifyAdapter(config: ShopifyAdapterConfig): PlatformAdap
         "X-Shopify-Access-Token": token,
       };
       const base = `https://${shop}/admin/api/${version}/orders/${encodeURIComponent(result.externalId)}`;
-      const current = await fetchImpl(`${base}.json`, {
+      const current = await fetchWithRetry(fetchImpl, `${base}.json`, {
         headers,
         signal: AbortSignal.timeout(15_000),
       });
@@ -137,7 +157,7 @@ export function createShopifyAdapter(config: ShopifyAdapterConfig): PlatformAdap
         if (!existing.includes(tag)) existing.push(tag);
         merged = existing.join(", ");
       }
-      await fetchImpl(`${base}.json`, {
+      await fetchWithRetry(fetchImpl, `${base}.json`, {
         method: "PUT",
         headers,
         body: JSON.stringify({ order: { id: Number(result.externalId) || result.externalId, tags: merged } }),

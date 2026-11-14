@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 (staging only)
+
+- Review fixes: dynamic schedule slot (no hardcoded date), agent/version/voice from
+  env, fail-closed without `SHOPIFY_API_SECRET`, pure mapping helpers with tests,
+  write-back retry (network/5xx), contextual server logs.
+
 ## 0.2.0 (staging only)
 
 - Outcomes follow prompt v2.0: 7 canonical dispositions + separate execution status; Shopify tags per §11 table (`call-cancel-requested`, etc.); `Send-test` deliveries skipped via `X-Shopify-Test`.

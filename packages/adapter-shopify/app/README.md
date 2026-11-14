@@ -5,16 +5,14 @@ No Remix/CLI needed. Thin glue: existing `src/` mapping + `@techladder/core` cli
 ## Run (your PC, secrets stay local)
 
 ```powershell
-cd TechLadder\techladder-sdk\packages\adapter-shopify
-$env:TECHLADDER_API_KEY="<dev sk_>"
-$env:TECHLADDER_BASE_URL="https://api.dev.techladder.ai"
-$env:SHOPIFY_API_SECRET="<partner Client secret>"
-$env:SHOPIFY_SHOP="dev-store-1gm9xtph.myshopify.com"
-$env:SHOPIFY_TOKEN=""   # empty = log-only write-back for now
-$env:TECHLADDER_WEBHOOK_SECRET=""  # empty = accept-and-ignore until registered endpoint secret set
-$env:PORT="4311"
 npx tsx app/server.ts
 ```
+Env comes from `techladder-sdk/.env` (all values local only):
+`TECHLADDER_API_KEY`, `TECHLADDER_BASE_URL`, `SHOPIFY_API_SECRET` (required —
+server refuses to start without it), `SHOPIFY_SHOP`, `AGENT_ID`, `AGENT_VERSION`,
+`AGENT_VOICE`, `SCHEDULE_TIMEZONE`, `STORE_DISPLAY_NAME`, `SHOPIFY_TOKEN`
+(empty = log-only write-back), `TECHLADDER_WEBHOOK_SECRET` (empty = TechLadder
+posts ignored), `WEBHOOK_TOLERANCE`, `PORT`.
 
 Expose it: `cloudflared tunnel --url http://localhost:4311` (or ngrok). Register:
 * Partners -> AI Calls -> Webhooks: `orders/create -> POST https://<tunnel>/webhooks/shopify/orders`

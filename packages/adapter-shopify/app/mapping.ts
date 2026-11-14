@@ -1,0 +1,66 @@
+// Pure mapping helpers for app/server.ts — unit-tested, no I/O.
+// Shopify specifics stay in adapter-shopify. Core never imports this.
+
+export function headerVal(headers: Record<string, string | string[] | undefined>, name: string): string | undefined {
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === name) return Array.isArray(v) ? v[0] : v;
+  }
+  return undefined;
+}
+
+/** Shopify marks "Send test" deliveries so dummy payloads never reach the API. */
+export function isTestDelivery(headers: Record<string, string | string[] | undefined>): boolean {
+  return (headerVal(headers, "x-shopify-test") ?? "").toLowerCase() === "true";
+}
+
+type UnknownRecord = Record<string, unknown>;
+
+/** Real Shopify nests the phone 4+ levels deep — check all of them. */
+export function extractPhone(payload: UnknownRecord): string | null {
+  const cust = (payload["customer"] as UnknownRecord | undefined) ?? {};
+  const ship = (payload["shipping_address"] as UnknownRecord | undefined) ?? {};
+  const bill = (payload["billing_address"] as UnknownRecord | undefined) ?? {};
+  return (
+    (payload["phone"] as string | undefined) ||
+    (cust["phone"] as string | undefined) ||
+    (ship["phone"] as string | undefined) ||
+    (bill["phone"] as string | undefined) ||
+    null
+  );
+}
+
+export function extractName(payload: UnknownRecord): { first?: string; last?: string } {
+  const cust = (payload["customer"] as UnknownRecord | undefined) ?? {};
+  return {
+    first: (payload["first_name"] as string | undefined) ?? (cust["first_name"] as string | undefined),
+    last: (cust["last_name"] as string | undefined),
+  };
+}
+
+/** Raw *.myshopify.com domains must never be spoken aloud. */
+export function friendlyStoreName(shopDomain: string, override = ""): string {
+  if (override.trim()) return override.trim();
+  const sub = shopDomain.split(".")[0] ?? shopDomain;
+  return sub.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim() || shopDomain;
+}
+
+/** Fresh schedule slot per order — never a hardcoded date. */
+export function scheduleSlot(nowMs = Date.now(), timezone = "Asia/Kolkata"): { schedule_date: string; schedule_time: string; timezone: string } {
+  const inTz = new Date(nowMs + 5 * 60 * 1000);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+    .formatToParts(inTz)
+    .reduce<Record<string, string>>((acc, p) => ({ ...acc, [p.type]: p.value }), {});
+  return {
+    schedule_date: `${parts["year"]}-${parts["month"]}-${parts["day"]}`,
+    schedule_time: `${parts["hour"]}:${parts["minute"]}`,
+    timezone,
+  };
+}

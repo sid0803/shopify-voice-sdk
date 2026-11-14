@@ -45,4 +45,19 @@ describe("shopify adapter scaffold", () => {
     expect(executionStatusToTag("no_answer")).toBe("call-no-answer");
     expect(executionStatusToTag("failed")).toBe("call-failed");
   });
+
+  it("retries transient 5xx on write-back", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("err", { status: 500 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ order: { id: 123, tags: "" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    const a = createShopifyAdapter({ apiSecret: SECRET, accessToken: "tok", fetchImpl: fetchMock as typeof fetch });
+    await a.handleResult(
+      { eventType: "call_completed", outcome: "cancelled", callId: "c2", source: "shopify", externalId: "123", externalAccountId: "demo.myshopify.com" },
+      { externalAccountId: "demo.myshopify.com", config: { apiSecret: SECRET } },
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const [, putInit] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(String(putInit.body)).toContain("call-cancel-requested");
+  });
 });
