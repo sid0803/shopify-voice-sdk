@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHmac } from "node:crypto";
-import { createShopifyAdapter, outcomeToTag, topicToEventType } from "../src/index.js";
+import { createShopifyAdapter, executionStatusToTag, outcomeToTag, topicToEventType } from "../src/index.js";
 
 const SECRET = "shpss_test";
 
@@ -38,6 +38,11 @@ describe("shopify adapter scaffold", () => {
     const [, putInit] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(String(putInit.body)).toContain("call-confirmed");
     expect(String(putInit.body)).toContain("vip");
-    expect(outcomeToTag("no_answer")).toBe("call-no-answer");
+    expect(outcomeToTag("cancelled")).toBe("call-cancel-requested");
+    expect(outcomeToTag("modification_requested")).toBe("call-modification-requested");
+    expect(outcomeToTag("uncertain")).toBe("call-uncertain");
+    expect(outcomeToTag("wrong_number")).toBe("call-wrong-number");
+    expect(executionStatusToTag("no_answer")).toBe("call-no-answer");
+    expect(executionStatusToTag("failed")).toBe("call-failed");
   });
 });

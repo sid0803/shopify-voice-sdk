@@ -22,7 +22,8 @@ Verified: `techladder-core/app/domain/developer_integrations/call_batches/schema
 | Field | Type | Meaning |
 |---|---|---|
 | `eventType` | `"call_completed"` | Fixed. Backend emits `call.completed`. |
-| `outcome` | `confirmed\|cancelled\|no_answer\|failed` | Adapter maps to tags/notes. |
+| `outcome` | `confirmed\|cancelled\|modification_requested\|callback_requested\|human_assistance\|uncertain\|wrong_number` | Business disposition from agent (prompt v2.0 §2/§10A). Never execution status. |
+| `callStatus?` | `completed\|no_answer\|failed` | Platform execution status. Absent = completed. |
 | `summary`, `transcriptUrl`, `recordingUrl` | optional | From `GET .../result`, `.../transcript`, `.../recording-url`. |
 | `callId`, `batchId?` | string | Backend `call_id`, `schedule_id`. |
 | `source`, `externalId`, `externalAccountId` | string | Echo of inbound routing keys so adapter can write back. |

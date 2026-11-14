@@ -76,5 +76,9 @@ describe("second-platform test", () => {
     };
     expect(CallCompletedEventSchema.safeParse(out).success).toBe(true);
     expect(CallCompletedEventSchema.safeParse({ ...out, outcome: "maybe" }).success).toBe(false);
+    // Prompt v2.0: seven dispositions valid, execution statuses are not outcomes.
+    expect(CallCompletedEventSchema.safeParse({ ...out, outcome: "modification_requested" }).success).toBe(true);
+    expect(CallCompletedEventSchema.safeParse({ ...out, outcome: "wrong_number" }).success).toBe(true);
+    expect(CallCompletedEventSchema.safeParse({ ...out, outcome: "no_answer" }).success).toBe(false);
   });
 });

@@ -26,6 +26,6 @@ export { verifyWebhook } from "./webhooks/verify.js";
 export type { VerifiedWebhook, VerifyWebhookInput } from "./webhooks/verify.js";
 export { InMemoryWebhookStore, shouldProcessEvent } from "./webhooks/dedupe.js";
 export type { WebhookEventStore } from "./webhooks/dedupe.js";
-export { CallCompletedEventSchema, CallOutcomeSchema, ContactSchema, InboundEventSchema } from "./events/types.js";
-export type { CallCompletedEvent, CallOutcome, Contact, InboundEvent } from "./events/types.js";
+export { CallCompletedEventSchema, CallDispositionSchema, CallExecutionStatusSchema, ContactSchema, InboundEventSchema } from "./events/types.js";
+export type { CallCompletedEvent, CallDisposition, CallExecutionStatus, Contact, InboundEvent } from "./events/types.js";
 export type { AdapterContext, PlatformAdapter, RawIncomingRequest } from "./adapter.js";

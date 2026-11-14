@@ -4,6 +4,7 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { InboundEventSchema } from "../../core/src/events/types.js";
+import type { CallDisposition, CallExecutionStatus } from "../../core/src/events/types.js";
 import { SHOPIFY_API_VERSION } from "./shopifyConfig.js";
 import type { AdapterContext, PlatformAdapter, RawIncomingRequest } from "../../core/src/adapter.js";
 import type { CallCompletedEvent, InboundEvent } from "../../core/src/events/types.js";
@@ -43,10 +44,25 @@ function toBytes(body: Uint8Array | string): Uint8Array {
   return typeof body === "string" ? new TextEncoder().encode(body) : body;
 }
 
-export function outcomeToTag(outcome: CallCompletedEvent["outcome"]): string {
+// Tag mapping from prompt v2.0 section 11 (recommended Shopify tag mapping).
+// Business dispositions only — the agent never claims tags were applied.
+export function outcomeToTag(outcome: CallDisposition): string {
   switch (outcome) {
     case "confirmed": return "call-confirmed";
-    case "cancelled": return "call-cancelled";
+    case "cancelled": return "call-cancel-requested";
+    case "modification_requested": return "call-modification-requested";
+    case "callback_requested": return "call-callback-requested";
+    case "human_assistance": return "call-human-assistance";
+    case "uncertain": return "call-uncertain";
+    case "wrong_number": return "call-wrong-number";
+  }
+}
+
+/** Execution statuses never reach Main Disposition (prompt v2.0 section 2 + 10E).
+ * The platform maps them to tags directly when no conversation occurred. */
+export function executionStatusToTag(status: CallExecutionStatus): string {
+  switch (status) {
+    case "completed": return "call-confirmed";
     case "no_answer": return "call-no-answer";
     case "failed": return "call-failed";
   }
@@ -95,7 +111,13 @@ export function createShopifyAdapter(config: ShopifyAdapterConfig): PlatformAdap
       if (!token) throw new Error("Missing Shopify access token for write-back");
       const version = ctx.config.apiVersion ?? config.apiVersion ?? SHOPIFY_API_VERSION;
       const shop = ctx.externalAccountId;
-      const tag = outcomeToTag(result.outcome);
+      // Business disposition decides the tag; a non-completed execution status
+      // (no conversation occurred) maps via execution status instead (prompt v2.0 section 10E).
+      // Absent callStatus means completed — the call.completed path.
+      const tag =
+        result.callStatus !== undefined && result.callStatus !== "completed"
+          ? executionStatusToTag(result.callStatus)
+          : outcomeToTag(result.outcome);
       // Merge-safe write-back: GET existing tags first, then PUT merged set.
       // Shopify REST replaces tags on PUT — blind PUT would clobber merchant tags.
       const fetchImpl = config.fetchImpl ?? fetch;

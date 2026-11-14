@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0 (staging only)
+
+- Outcomes follow prompt v2.0: 7 canonical dispositions + separate execution status; Shopify tags per §11 table (`call-cancel-requested`, etc.); `Send-test` deliveries skipped via `X-Shopify-Test`.
+- Server passes all 5 prompt context vars into batch metadata; nested Shopify phone extraction.
+
 ## 0.1.1 (staging only, senior fixes)
 
 - Fail fast: `TechLadderHttpClient` requires explicit `baseUrl` (no placeholders).

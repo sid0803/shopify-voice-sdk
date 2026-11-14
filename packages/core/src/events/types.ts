@@ -22,11 +22,29 @@ export const InboundEventSchema = z.object({
   externalAccountId: z.string().min(1).max(120),
 });
 
-export const CallOutcomeSchema = z.enum(["confirmed", "cancelled", "no_answer", "failed"]);
+// Canonical BUSINESS dispositions from the voice agent (customer intent).
+// Source: SHOPIFY ORDER CONFIRMATION prompt v2.0 section 2 + section 10A.
+// Seven values only — never execution statuses.
+export const CallDispositionSchema = z.enum([
+  "confirmed",
+  "cancelled",
+  "modification_requested",
+  "callback_requested",
+  "human_assistance",
+  "uncertain",
+  "wrong_number",
+]);
+
+// Call EXECUTION statuses, tracked by the calling platform/integration —
+// never invented by the voice agent (prompt v2.0 section 2 + section 10E).
+export const CallExecutionStatusSchema = z.enum(["completed", "no_answer", "failed"]);
 
 export const CallCompletedEventSchema = z.object({
   eventType: z.literal("call_completed"),
-  outcome: CallOutcomeSchema,
+  outcome: CallDispositionSchema,
+  // Execution status rides along when the platform reports it (e.g. TechLadder
+  // call.failed). Absent means completed — the common call.completed path.
+  callStatus: CallExecutionStatusSchema.optional(),
   summary: z.string().optional(),
   transcriptUrl: z.string().optional(),
   recordingUrl: z.string().optional(),
@@ -39,5 +57,6 @@ export const CallCompletedEventSchema = z.object({
 
 export type Contact = z.infer<typeof ContactSchema>;
 export type InboundEvent = z.infer<typeof InboundEventSchema>;
-export type CallOutcome = z.infer<typeof CallOutcomeSchema>;
+export type CallDisposition = z.infer<typeof CallDispositionSchema>;
+export type CallExecutionStatus = z.infer<typeof CallExecutionStatusSchema>;
 export type CallCompletedEvent = z.infer<typeof CallCompletedEventSchema>;
