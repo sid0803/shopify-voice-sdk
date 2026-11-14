@@ -20,6 +20,8 @@ export type {
   IdempotentCreateBatchRequest,
 } from "./resources/batches.js";
 export { CallsResource } from "./resources/calls.js";
+export { AccountResource } from "./resources/account.js";
+export type { DeveloperAccount } from "./resources/account.js";
 export { CallRecordsResource, WebhookEndpointsResource } from "./resources/more.js";
 export type { ApiEnvelope, Pagination } from "./resources/envelope.js";
 export { verifyWebhook } from "./webhooks/verify.js";

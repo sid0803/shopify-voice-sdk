@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 (staging only, senior prod-ready plan)
+
+- Per-shop sk_ validation (AccountResource GET /me); v1 topics narrowed.
+- toCallResult: analysis.ready/call.failed/call.completed → CallCompletedEvent
+  with ledger-based shop/order resolution; tolerant outcome matcher (prompt-owner
+  keys TBD).
+- GraphQL tagsAdd write-back with retry; 401/502 webhook semantics; GDPR per
+  spec; settings module; E.164 + DND hooks; Order_Amount metadata.
+- Call ledger + event-claim store interfaces (in-memory now, Mongo later).
+
 ## 0.2.1 (staging only)
 
 - Review fixes: dynamic schedule slot (no hardcoded date), agent/version/voice from

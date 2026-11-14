@@ -16,6 +16,9 @@ describe("shopify adapter scaffold", () => {
     expect(ok?.externalAccountId).toBe("demo.myshopify.com");
     expect(a.toStandardEvent({ topic: "orders/create", shopDomain: "demo.myshopify.com", payload: { id: 124 } })).toBeNull();
     expect(topicToEventType("app/uninstalled")).toBeNull();
+    // v1 scope: updates and checkouts are parked, never call.
+    expect(topicToEventType("orders/updated")).toBeNull();
+    expect(topicToEventType("checkouts/create")).toBeNull();
   });
 
   it("verifies Shopify HMAC (base64)", async () => {
@@ -25,19 +28,19 @@ describe("shopify adapter scaffold", () => {
     await expect(a.verifyIncoming({ rawBody: raw, headers: { "x-shopify-hmac-sha256": "bad" } })).rejects.toThrow();
   });
 
-  it("writes outcome tag back to the order (merge-safe: GET then PUT)", async () => {
+  it("writes outcome tag via atomic GraphQL tagsAdd", async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ order: { id: 123, tags: "vip" } }), { status: 200 }))
-      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { tagsAdd: { userErrors: [] } } }), { status: 200 }));
     const a = createShopifyAdapter({ apiSecret: SECRET, accessToken: "tok", fetchImpl: fetchMock as typeof fetch });
     await a.handleResult(
       { eventType: "call_completed", outcome: "confirmed", callId: "c1", source: "shopify", externalId: "123", externalAccountId: "demo.myshopify.com" },
       { externalAccountId: "demo.myshopify.com", config: { apiSecret: SECRET } },
     );
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const [, putInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, putInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/graphql.json");
+    expect(String(putInit.body)).toContain("gid://shopify/Order/123");
     expect(String(putInit.body)).toContain("call-confirmed");
-    expect(String(putInit.body)).toContain("vip");
     expect(outcomeToTag("cancelled")).toBe("call-cancel-requested");
     expect(outcomeToTag("modification_requested")).toBe("call-modification-requested");
     expect(outcomeToTag("uncertain")).toBe("call-uncertain");
@@ -49,15 +52,24 @@ describe("shopify adapter scaffold", () => {
   it("retries transient 5xx on write-back", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response("err", { status: 500 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ order: { id: 123, tags: "" } }), { status: 200 }))
-      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { tagsAdd: { userErrors: [] } } }), { status: 200 }));
     const a = createShopifyAdapter({ apiSecret: SECRET, accessToken: "tok", fetchImpl: fetchMock as typeof fetch });
     await a.handleResult(
       { eventType: "call_completed", outcome: "cancelled", callId: "c2", source: "shopify", externalId: "123", externalAccountId: "demo.myshopify.com" },
       { externalAccountId: "demo.myshopify.com", config: { apiSecret: SECRET } },
     );
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    const [, putInit] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [, putInit] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(String(putInit.body)).toContain("call-cancel-requested");
+  });
+
+  it("throws on tagsAdd userErrors", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { tagsAdd: { userErrors: [{ message: "denied" }] } } }), { status: 200 }));
+    const a = createShopifyAdapter({ apiSecret: SECRET, accessToken: "tok", fetchImpl: fetchMock as typeof fetch });
+    await expect(a.handleResult(
+      { eventType: "call_completed", outcome: "confirmed", callId: "c3", source: "shopify", externalId: "123", externalAccountId: "demo.myshopify.com" },
+      { externalAccountId: "demo.myshopify.com", config: { apiSecret: SECRET } },
+    )).rejects.toThrow("denied");
   });
 });

@@ -7,18 +7,21 @@
 //   SHOPIFY_TOKEN (optional: absent = write-back logged, not PUT),
 //   TECHLADDER_WEBHOOK_SECRET (optional: absent = TechLadder posts ignored),
 //   WEBHOOK_TOLERANCE (default 300, senior-agreed test value), PORT.
+// Per-shop overrides (agent, hours, filters, tags) live in ShopSettings
+// (src/settings.ts) — the embedded admin UI writes them; env is fallback.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createShopifyAdapter } from "../src/index.js";
-import { InMemoryShopStore } from "../src/shopStore.js";
+import { InMemoryCallLedger, InMemoryEventClaim, InMemoryShopStore } from "../src/stores.js";
+import { defaultSettings, InMemorySettingsStore } from "../src/settings.js";
 import { TechLadderHttpClient, BatchesResource, buildScopedIdempotencyKey } from "../../core/src/index.js";
 import { verifyWebhook } from "../../core/src/webhooks/verify.js";
 import { InMemoryWebhookStore, shouldProcessEvent } from "../../core/src/webhooks/dedupe.js";
-import { CallCompletedEventSchema } from "../../core/src/events/types.js";
+import { toCallResult } from "../src/result.js";
 import { handleGdprWebhook } from "../src/gdpr.js";
-import { extractName, extractPhone, friendlyStoreName, headerVal, isTestDelivery, scheduleSlot } from "./mapping.js";
+import { extractName, extractPhone, friendlyStoreName, headerVal, isTestDelivery, normalizePhone, scheduleSlot } from "./mapping.js";
 
 // Load techladder-sdk/.env so nothing is pasted in terminal.
 for (const p of [
@@ -47,18 +50,14 @@ const SHOPIFY_SECRET = required("SHOPIFY_API_SECRET");
 const SHOP = (process.env["SHOPIFY_SHOP"] ?? "").toLowerCase();
 const TL_KEY = required("TECHLADDER_API_KEY");
 const TL_BASE = required("TECHLADDER_BASE_URL");
-// Agent pinned by senior for the COD use case; per-shop map comes after 3-4 use cases.
-const AGENT_ID = process.env["AGENT_ID"] ?? "agt-d24d1800";
-const AGENT_VERSION = process.env["AGENT_VERSION"] ?? "Version 2";
-// Explicit voice: omitting it defaults to Kashufa, which drops after the greet on dev.
-const AGENT_VOICE = process.env["AGENT_VOICE"] ?? "Deepika";
-const SCHEDULE_TZ = process.env["SCHEDULE_TIMEZONE"] ?? "Asia/Kolkata";
-const STORE_DISPLAY = process.env["STORE_DISPLAY_NAME"] ?? "";
 const SHOPIFY_TOKEN = process.env["SHOPIFY_TOKEN"] ?? "";
 const TOLERANCE = Number(process.env["WEBHOOK_TOLERANCE"] ?? "300");
 
 const shops = new InMemoryShopStore();
 const seen = new InMemoryWebhookStore();
+const ledger = new InMemoryCallLedger();
+const claims = new InMemoryEventClaim();
+const settingsStore = new InMemorySettingsStore();
 const shopify = createShopifyAdapter({ apiSecret: SHOPIFY_SECRET, accessToken: SHOPIFY_TOKEN || undefined });
 
 function readBody(req: IncomingMessage): Promise<Buffer> {
@@ -75,6 +74,13 @@ function send(res: ServerResponse, status: number, body: string): void {
   res.end(body);
 }
 
+/** Transient (retryable by Shopify) vs settled failures. */
+function transientOf(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  if (typeof status === "number") return status === 429 || status >= 500;
+  return /fetch failed|aborted|timeout|network|5\d\d/i.test(String((err as Error)?.message ?? err));
+}
+
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -87,14 +93,34 @@ const server = createServer(async (req, res) => {
         console.log("[shopify:test-skipped] Send-test notification ignored");
         return send(res, 200, "test-skipped");
       }
-      await shopify.verifyIncoming({ rawBody: raw, headers });
-      const payload = JSON.parse(raw.toString("utf-8") ?? "{}") as Record<string, unknown>;
+      try {
+        await shopify.verifyIncoming({ rawBody: raw, headers });
+      } catch {
+        return send(res, 401, "bad signature");
+      }
       const topic = headerVal(headers, "x-shopify-topic") || "orders/create";
       const shop = (headerVal(headers, "x-shopify-shop-domain") || SHOP).toLowerCase();
-      const logCtx = `shop=${shop}`;
-      const phone = extractPhone(payload);
+      if (topic === "app/uninstalled") {
+        await shops.remove(shop);
+        console.log(`[shopify:uninstalled] shop=${shop} token revoked, calling stopped`);
+        return send(res, 200, "uninstalled");
+      }
+      const settings = (await settingsStore.get(shop)) ?? defaultSettings(shop);
+      if (!settings.enabled) return send(res, 200, "disabled");
+      const payload = JSON.parse(raw.toString("utf-8") ?? "{}") as Record<string, unknown>;
+      const phone = normalizePhone(extractPhone(payload));
+      if (!phone) {
+        console.log(`[shopify:ignored] shop=${shop} topic=${topic} undialable phone`);
+        return send(res, 200, "ignored");
+      }
+      if (settings.blockedPhones.map((p) => p.toLowerCase()).includes(phone.toLowerCase())) {
+        console.log(`[shopify:suppressed] shop=${shop} phone on DND list`);
+        return send(res, 200, "suppressed");
+      }
       const { first: firstName, last: lastName } = extractName(payload);
       const orderName = (payload["name"] as string | undefined) || undefined;
+      const orderId = String((payload["id"] as number | string | undefined) ?? "");
+      if (!orderId) return send(res, 200, "ignored");
       const items = payload["line_items"];
       const itemsSummary = Array.isArray(items)
         ? (items as Array<Record<string, unknown>>)
@@ -107,46 +133,63 @@ const server = createServer(async (req, res) => {
         (Array.isArray(payload["payment_gateway_names"])
           ? ((payload["payment_gateway_names"] as unknown[]).map(String).join(", ") || undefined)
           : undefined);
+      const total =
+        (payload["total_price"] as string | undefined) ??
+        (payload["total"] as string | undefined);
+      if (settings.codOnly && !/cod|cash|collect|pending/i.test(payment ?? "")) {
+        console.log(`[shopify:filtered] shop=${shop} order=${orderId} non-COD skipped`);
+        return send(res, 200, "filtered");
+      }
       const std = shopify.toStandardEvent({
         topic,
         shopDomain: shop,
-        payload: { id: (payload["id"] as number | string | undefined) ?? 0, phone, first_name: firstName },
+        payload: { id: orderId, phone, first_name: firstName },
       });
-      if (!std) {
-        console.log(`[shopify:ignored] ${logCtx} no phone or topic=${topic}`);
-        return send(res, 200, "ignored");
-      }
+      if (!std) return send(res, 200, "ignored");
       const ctx = `shop=${std.externalAccountId} order=${std.externalId}`;
-      const slot = scheduleSlot(Date.now(), SCHEDULE_TZ);
-      const http = new TechLadderHttpClient({ apiKey: TL_KEY, baseUrl: TL_BASE });
+      const slot = scheduleSlot(Date.now(), settings.callingHours.timezone);
+      // No retries here: fast ack, Shopify redelivers on 5xx, idempotency dedupes.
+      const http = new TechLadderHttpClient({ apiKey: TL_KEY, baseUrl: TL_BASE, maxRetries: 0 });
       const batches = new BatchesResource(http);
       const customerName = [firstName, lastName].filter(Boolean).join(" ") || undefined;
-      const out = await batches.createIdempotent({
-        agent_id: AGENT_ID,
-        version_name: AGENT_VERSION,
-        voice: AGENT_VOICE,
-        interruption: true,
-        use_alternate_number: false,
-        start_mode: "immediate",
-        ...slot,
-        contacts: [
-          {
-            external_id: std.externalId,
-            phone_number: std.contact.phone,
-            metadata: {
-              Customer_Name: customerName,
-              Order_Reference: orderName ?? std.externalId,
-              Order_Items: itemsSummary,
-              Payment_Method: payment,
-              Store_Name: friendlyStoreName(shop, STORE_DISPLAY),
+      const key = buildScopedIdempotencyKey(std.source, std.externalAccountId, std.eventType, std.externalId);
+      try {
+        const out = await batches.createIdempotent({
+          agent_id: settings.agentId,
+          version_name: settings.versionName,
+          voice: settings.voice,
+          interruption: true,
+          use_alternate_number: false,
+          start_mode: "immediate",
+          ...slot,
+          ...(settings.didNumberId ? { did_number_id: settings.didNumberId } : {}),
+          contacts: [
+            {
+              external_id: std.externalId,
+              phone_number: phone,
+              metadata: {
+                Customer_Name: customerName,
+                Order_Reference: orderName ?? std.externalId,
+                Order_Items: itemsSummary,
+                Payment_Method: payment,
+                Order_Amount: total,
+                Store_Name: friendlyStoreName(shop, process.env["STORE_DISPLAY_NAME"] ?? ""),
+              },
             },
-          },
-        ],
-        idempotency_key: buildScopedIdempotencyKey(std.source, std.externalAccountId, std.eventType, std.externalId),
-      });
-      await shops.save({ shopDomain: shop, accessToken: SHOPIFY_TOKEN, installedAt: new Date().toISOString() });
-      console.log(`[shopify:queued] ${ctx} batch=${out.batch_id}`);
-      return send(res, 200, `queued ${out.batch_id}`);
+          ],
+          idempotency_key: key,
+        });
+        const now = new Date().toISOString();
+        ledger.save({ shop, orderId: std.externalId, externalId: std.externalId, batchId: out.batch_id, idempotencyKey: key, status: out.status, createdAt: now, updatedAt: now });
+        await shops.save({ shopDomain: shop, accessToken: SHOPIFY_TOKEN, installedAt: now });
+        console.log(`[shopify:queued] ${ctx} batch=${out.batch_id}`);
+        return send(res, 200, `queued ${out.batch_id}`);
+      } catch (err) {
+        if (transientOf(err)) return send(res, 502, "transient");
+        const e = err as { status?: number; requestId?: string };
+        console.error(`[shopify:settled] ${ctx}`, e.status ?? "-", e.requestId ?? "-");
+        return send(res, 200, "ignored");
+      }
     }
 
     if (req.method === "POST" && url.pathname === "/webhooks/techladder") {
@@ -154,19 +197,37 @@ const server = createServer(async (req, res) => {
       const headers = req.headers as Record<string, string | string[] | undefined>;
       const secret = process.env["TECHLADDER_WEBHOOK_SECRET"] ?? "";
       if (!secret) return send(res, 200, "no-verify-secret: ignored");
-      const v = verifyWebhook({ rawBody: raw, headers, secret, toleranceSeconds: TOLERANCE });
-      if (!(await shouldProcessEvent(seen, v.eventId))) return send(res, 200, "duplicate");
-      const envelope = JSON.parse(raw.toString("utf-8") ?? "{}") as { data?: unknown };
-      const parsed = CallCompletedEventSchema.safeParse(envelope.data);
-      if (!parsed.success) return send(res, 200, "ignored");
-      const r = parsed.data;
-      const ctx = `shop=${r.externalAccountId} order=${r.externalId} outcome=${r.outcome}`;
+      let eventId: string;
+      try {
+        eventId = verifyWebhook({ rawBody: raw, headers, secret, toleranceSeconds: TOLERANCE }).eventId;
+      } catch {
+        return send(res, 401, "bad signature");
+      }
+      if (!(await claims.claim(eventId))) return send(res, 200, "duplicate");
+      await shouldProcessEvent(seen, eventId);
+      const envelope = JSON.parse(raw.toString("utf-8") ?? "{}") as { data?: unknown; event?: string };
+      const result = toCallResult({ ...(typeof envelope === "object" ? envelope : {}), event: envelope.event }, ledgerAdapter());
+      if (!result) return send(res, 200, "ignored");
+      const ctx = `shop=${result.externalAccountId} order=${result.externalId} outcome=${result.outcome}`;
+      const settings = (await settingsStore.get(result.externalAccountId)) ?? defaultSettings(result.externalAccountId);
+      if (!settings.tagsEnabled) {
+        console.log(`[write-back:disabled] ${ctx}`);
+        return send(res, 200, "disabled");
+      }
       const cfg = { apiSecret: SHOPIFY_SECRET, accessToken: SHOPIFY_TOKEN || undefined };
       if (!SHOPIFY_TOKEN) {
         console.log(`[write-back:log-only] ${ctx}`);
         return send(res, 200, "logged");
       }
-      await shopify.handleResult(r, { externalAccountId: r.externalAccountId, config: cfg });
+      try {
+        await shopify.handleResult(result, { externalAccountId: result.externalAccountId, config: cfg });
+      } catch (err) {
+        if (transientOf(err)) return send(res, 502, "transient");
+        console.error(`[write-back:settled] ${ctx}`, String((err as Error)?.message ?? err));
+        return send(res, 200, "ignored");
+      }
+      ledger.update(result.externalId, { outcome: result.outcome, status: "tagged", tagApplied: result.outcome });
+      ledger.update(result.callId, { outcome: result.outcome, status: "tagged", tagApplied: result.outcome });
       console.log(`[write-back:tagged] ${ctx}`);
       return send(res, 200, "tagged");
     }
@@ -174,9 +235,9 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname.startsWith("/webhooks/gdpr/")) {
       const raw = await readBody(req);
       const topic = url.pathname.split("/").pop() ?? "";
-      const body = JSON.parse(raw.toString("utf-8") ?? "{}") as string) as { shop_domain?: string };
-      await handleGdprWebhook(topic, (body.shop_domain ?? SHOP).toLowerCase(), shops);
-      return send(res, 200, "ok");
+      const body = JSON.parse(raw.toString("utf-8") ?? "{}") as { shop_domain?: string };
+      const out = await handleGdprWebhook(topic, (body.shop_domain ?? SHOP).toLowerCase(), shops, body);
+      return send(res, 200, JSON.stringify(out.body));
     }
 
     return send(res, 404, "not found");
@@ -186,5 +247,14 @@ const server = createServer(async (req, res) => {
     return send(res, 200, "ignored");
   }
 });
+
+function ledgerAdapter() {
+  return {
+    lookup: (key: string) => {
+      const r = ledger.lookup(key);
+      return r instanceof Promise ? null : r;
+    },
+  };
+}
 
 server.listen(PORT, () => console.log(`[adapter-shopify:app] listening :${PORT}`));

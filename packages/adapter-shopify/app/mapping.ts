@@ -44,6 +44,16 @@ export function friendlyStoreName(shopDomain: string, override = ""): string {
   return sub.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim() || shopDomain;
 }
 
+/** E.164-ish normalization (senior item 5). Strips trunk/punctuation noise and
+ * forces an explicit + prefix (shop-country numbers are recorded as given).
+ * Requires 8-15 digits. Returns null when undialable. */
+export function normalizePhone(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const digits = raw.trim().replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 15) return null;
+  return `+${digits}`;
+}
+
 /** Fresh schedule slot per order — never a hardcoded date. */
 export function scheduleSlot(nowMs = Date.now(), timezone = "Asia/Kolkata"): { schedule_date: string; schedule_time: string; timezone: string } {
   const inTz = new Date(nowMs + 5 * 60 * 1000);

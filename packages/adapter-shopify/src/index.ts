@@ -88,10 +88,11 @@ export function executionStatusToTag(status: CallExecutionStatus): string {
   }
 }
 
-/** Map Shopify topic -> neutral eventType. null = ignore. */
-export function topicToEventType(topic: string): "order_confirmation" | "cart_recovery" | null {
-  if (topic === "orders/create" || topic === "orders/updated") return "order_confirmation";
-  if (topic.startsWith("checkouts/") || topic === "carts/update") return "cart_recovery";
+/** Map Shopify topic -> neutral eventType. v1: orders/create only (senior item 2).
+ * orders/updated, checkouts/*, carts/update are parked — they fire for old or
+ * in-progress orders and caused calls that should never have happened. */
+export function topicToEventType(topic: string): "order_confirmation" | null {
+  if (topic === "orders/create") return "order_confirmation";
   return null;
 }
 
@@ -138,31 +139,32 @@ export function createShopifyAdapter(config: ShopifyAdapterConfig): PlatformAdap
         result.callStatus !== undefined && result.callStatus !== "completed"
           ? executionStatusToTag(result.callStatus)
           : outcomeToTag(result.outcome);
-      // Merge-safe write-back: GET existing tags first, then PUT merged set.
-      // Shopify REST replaces tags on PUT — blind PUT would clobber merchant tags.
+      // Atomic GraphQL tagsAdd (senior item 2) — no read-modify-write race,
+      // merchant tags are never clobbered.
       const fetchImpl = config.fetchImpl ?? fetch;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         "X-Shopify-Access-Token": token,
       };
-      const base = `https://${shop}/admin/api/${version}/orders/${encodeURIComponent(result.externalId)}`;
-      const current = await fetchWithRetry(fetchImpl, `${base}.json`, {
+      const gid = `gid://shopify/Order/${result.externalId}`;
+      const gql = await fetchWithRetry(fetchImpl, `https://${shop}/admin/api/${version}/graphql.json`, {
+        method: "POST",
         headers,
+        body: JSON.stringify({
+          query: "mutation tagsAdd($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { field message } } }",
+          variables: { id: gid, tags: [tag] },
+        }),
         signal: AbortSignal.timeout(15_000),
       });
-      let merged = tag;
-      if (current.ok) {
-        const body = (await current.json()) as { order?: { tags?: string } };
-        const existing = (body.order?.tags ?? "").split(",").map((t) => t.trim()).filter(Boolean);
-        if (!existing.includes(tag)) existing.push(tag);
-        merged = existing.join(", ");
+      const gqlBody = (await gql.json()) as {
+        errors?: Array<{ message?: string }>;
+        data?: { tagsAdd?: { userErrors?: Array<{ field?: string[]; message?: string }> } };
+      };
+      const userErrors = gqlBody.data?.tagsAdd?.userErrors ?? [];
+      if (!gql.ok || (gqlBody.errors ?? []).length > 0 || userErrors.length > 0) {
+        const detail = [...(gqlBody.errors ?? []).map((e) => e.message), ...userErrors.map((e) => e.message)].join("; ");
+        throw new Error(`Shopify tagsAdd failed: ${detail || gql.status}`);
       }
-      await fetchWithRetry(fetchImpl, `${base}.json`, {
-        method: "PUT",
-        headers,
-        body: JSON.stringify({ order: { id: Number(result.externalId) || result.externalId, tags: merged } }),
-        signal: AbortSignal.timeout(15_000),
-      });
     },
   };
 }

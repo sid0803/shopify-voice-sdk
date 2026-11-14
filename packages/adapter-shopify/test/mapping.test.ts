@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractName, extractPhone, friendlyStoreName, isTestDelivery, scheduleSlot } from "../app/mapping.js";
+import { extractName, extractPhone, friendlyStoreName, isTestDelivery, normalizePhone, scheduleSlot } from "../app/mapping.js";
 
 describe("server mapping helpers", () => {
   it("finds nested phones", () => {
@@ -24,6 +24,13 @@ describe("server mapping helpers", () => {
     expect(isTestDelivery({ "X-Shopify-Test": "true" })).toBe(true);
     expect(isTestDelivery({ "x-shopify-test": "TRUE" })).toBe(true);
     expect(isTestDelivery({})).toBe(false);
+  });
+
+  it("normalizes phones to E.164-ish form", () => {
+    expect(normalizePhone("+91 62975 46142")).toBe("+916297546142");
+    expect(normalizePhone("(555) 555-5555")).toBe("+5555555555");
+    expect(normalizePhone("123")).toBeNull();
+    expect(normalizePhone(null)).toBeNull();
   });
 
   it("emits a fresh slot, never hardcoded", () => {

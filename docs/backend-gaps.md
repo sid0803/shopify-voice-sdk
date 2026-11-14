@@ -1,6 +1,32 @@
 # Backend gaps (needs backend team / senior decision)
 
-Updated: 2026-11-13. Each item says where we looked.
+Updated: 2026-11-14 — senior prod-ready review decisions recorded below.
+Items marked DECIDED need no further debate; items marked BACKEND-REQUEST need
+another repo (techladder-core) — nothing outside techladder-sdk/ was touched.
+
+## Senior decisions (applied to code where possible)
+- D1 per-shop auth: Option 1 — one sk_ per shop, pasted in app settings, validated
+  via GET /me (new AccountResource). Scoped idempotency helper kept for shared-key
+  setups only.
+- D2 v1 webhook scope: orders/create + app/uninstalled + 3 GDPR topics only.
+  orders/updated, checkouts/*, carts/update parked (topicToEventType narrowed).
+- D3 write-back: GraphQL tagsAdd (atomic) with §11 tag table; log + throw on
+  userErrors. HMAC fail → 401, transient → 502 for Shopify retry, fast ack.
+- D4 GDPR: customers/redact = customer only; shop/redact = shop; data_request =
+  export log; app/uninstalled = revoke + stop.
+- D5 settings: agent/version/voice/DID/filters/hours/language/retries/tags per
+  shop (settings.ts); embedded UI still needs the Remix scaffold (confirm).
+- D6 billing: flat plan first; usage-minutes endpoint still requested (old #7).
+- D7 context: name/items/amount/address metadata (amount added; address excluded
+  for privacy — confirm). Consent/DND hooks exist; no source data yet (confirm).
+
+## Backend requests (need techladder-core — confirm each before I touch it)
+- B1 POST /calls idempotency_key (account-scoped, repeat returns existing).
+- B2 GET /call-batches 500 on dev (requestIds logged) + call.completed /
+  analysis.ready sample payloads + outcome-key confirmation for toCallResult.
+- B3 usage-minutes endpoint for Shopify usage billing.
+- B4 exact 429 shape + public error codes for public v1.
+- B5 polling SLA for missed webhooks.
 
 1. Webhook replay protection: NO timestamp-tolerance check found in `techladder-core/app/domain/developer_integrations/webhooks/service.py` (sign uses `iso_now()` at send, `service.py:542`). SDK cannot enforce expiry until backend documents allowed skew. Proposed: accept ±5 min, constant-time compare. Needs senior sign-off.
 2. Secret rotation: no rotate/reveal endpoint in `webhooks/router.py` (only create/list/patch/delete/test). If a `whsec_` leaks, adapter must create a new endpoint + delete old. Confirm this is the intended flow.
