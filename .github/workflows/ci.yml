@@ -1,0 +1,29 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Fail if real-looking secrets were committed. Test fixtures use sk_test_/whsec_test only.
+      - run: |
+          ! grep -RIn --exclude-dir=node_modules --exclude-dir=dist --exclude='*.lock' -E 'sk_live_|shpat_[A-Za-z0-9]{10,}|shpss_[A-Za-z0-9]{10,}|whsec_[A-Za-z0-9]{16,}' . || (echo 'real-looking secret found' && exit 1)
+          test ! -f .env
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
