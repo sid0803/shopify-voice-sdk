@@ -71,9 +71,12 @@ export function parseErrorBody(body: unknown): ParsedErrorBody {
     return typeof body === "string" && body ? { message: body.slice(0, 300), details: [] } : fallback;
   }
   const b = body as Record<string, unknown>;
+  // FastAPI error shape: {"detail": "reason" or [{loc, msg}]} — surface it.
+  if (typeof b["detail"] === "string" && (b["detail"] as string)) {
+    return { message: b["detail"] as string, details: [] };
+  }
   // FastAPI request-validation shape: {"detail": [{loc, msg, type}]} — surface it.
-  if (Array.isArray(b["detail"])) {
-    const details = (b["detail"] as Array<Record<string, unknown>>)
+  if (Array.isArray(b["detail"])) {    const details = (b["detail"] as Array<Record<string, unknown>>)
       .map((d) => {
         const loc = Array.isArray(d["loc"]) ? (d["loc"] as unknown[]).join(".") : "";
         const msg = typeof d["msg"] === "string" ? (d["msg"] as string) : "invalid";

@@ -38,6 +38,14 @@ const TL_KEY = process.env["TECHLADDER_API_KEY"] ?? "";
 const TL_BASE = process.env["TECHLADDER_BASE_URL"] ?? "";
 const SHOPIFY_TOKEN = process.env["SHOPIFY_TOKEN"] ?? "";
 const TOLERANCE = Number(process.env["WEBHOOK_TOLERANCE"] ?? "300");
+// Friendly store name for speech. Raw *.myshopify.com domains must never be
+// spoken aloud — prefer STORE_DISPLAY_NAME, else prettify the subdomain.
+const STORE_DISPLAY = process.env["STORE_DISPLAY_NAME"] || "";
+function friendlyStoreName(shopDomain: string): string {
+  if (STORE_DISPLAY.trim()) return STORE_DISPLAY.trim();
+  const sub = shopDomain.split(".")[0] ?? shopDomain;
+  return sub.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim() || shopDomain;
+}
 
 if (!TL_KEY || !TL_BASE) throw new Error("Set TECHLADDER_API_KEY and TECHLADDER_BASE_URL");
 if (!SHOPIFY_SECRET) console.warn("[warn] SHOPIFY_API_SECRET missing: Shopify verify skipped (test only)");
@@ -97,6 +105,20 @@ const server = createServer(async (req, res) => {
         (payload["first_name"] as string | undefined) ||
         (cust["first_name"] as string | undefined) ||
         undefined;
+      const lastName = cust["last_name"] as string | undefined;
+      const orderName = (payload["name"] as string | undefined) || undefined;
+      const items = payload["line_items"];
+      const itemsSummary = Array.isArray(items)
+        ? (items as Array<Record<string, unknown>>)
+            .map((li) => `${String(li["title"] ?? "item")} x${String(li["quantity"] ?? 1)}`)
+            .join(", ")
+            .slice(0, 500)
+        : undefined;
+      const payment =
+        (payload["financial_status"] as string | undefined) ||
+        (Array.isArray(payload["payment_gateway_names"])
+          ? ((payload["payment_gateway_names"] as unknown[]).map(String).join(", ") || undefined)
+          : undefined);
       const std = shopify.toStandardEvent({
         topic,
         shopDomain: shop,
@@ -108,17 +130,33 @@ const server = createServer(async (req, res) => {
       }
       const http = new TechLadderHttpClient({ apiKey: TL_KEY, baseUrl: TL_BASE });
       const batches = new BatchesResource(http);
-      // Test agent pinned by senior yes. TODO: make agent/version configurable per shop.
+      // Dedicated Shopify COD agent (senior-approved). TODO: per-shop agent map after 3-4 use cases.
+      const customerName = [firstName, lastName].filter(Boolean).join(" ") || undefined;
       const out = await batches.createIdempotent({
-        agent_id: "agt-5face2cd",
-        version_id: "pmt-bc2e83fcd4",
+        agent_id: "agt-d24d1800",
+        version_name: "Version 2",
+        // Pinned: agent's dashboard voice. Omitting it defaults to Kashufa
+        // (service DEFAULT_VOICE_NAME), which drops after the greet on dev.
+        voice: "Deepika",
         interruption: true,
         use_alternate_number: false,
         start_mode: "immediate",
         schedule_date: "2026-11-14",
         schedule_time: "10:00",
         timezone: "Asia/Kolkata",
-        contacts: [{ external_id: std.externalId, phone_number: std.contact.phone }],
+        contacts: [
+          {
+            external_id: std.externalId,
+            phone_number: std.contact.phone,
+            metadata: {
+              Customer_Name: customerName,
+              Order_Reference: orderName ?? std.externalId,
+              Order_Items: itemsSummary,
+              Payment_Method: payment,
+              Store_Name: friendlyStoreName(shop),
+            },
+          },
+        ],
         idempotency_key: buildScopedIdempotencyKey(std.source, std.externalAccountId, std.eventType, std.externalId),
       });
       await shops.save({ shopDomain: shop, accessToken: SHOPIFY_TOKEN, installedAt: new Date().toISOString() });
