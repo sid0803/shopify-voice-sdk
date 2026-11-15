@@ -20,6 +20,16 @@ another repo (techladder-core) — nothing outside techladder-sdk/ was touched.
 - D7 context: name/items/amount/address metadata (amount added; address excluded
   for privacy — confirm). Consent/DND hooks exist; no source data yet (confirm).
 
+## Backend branches (techladder-core, NOT pushed, main untouched)
+- feat/sdk-post-calls-idempotency: B1-a single-call routing + B2 serializer
+  hardening with crash-hunt test. Needs PR review, then push.
+- feat/sdk-usage-endpoint: B3 GET /public/usage. Needs PR review.
+- feat/sdk-public-rate-limit: B4 opt-in limiter (default OFF). Needs PR review.
+- B2 GET-500: crash class reproduced + fixed; dev's exact row still needs their
+  traceback to confirm. B5: no scheduler precedent in infra — propose
+  EventBridge Scheduler triggering ECS runTask every 2-5 min; infra owner
+  confirms. Nothing applied to infra.
+
 ## Backend requests (need techladder-core — confirm each before I touch it)
 - B1 POST /calls idempotency_key (account-scoped, repeat returns existing).
 - B2 GET /call-batches 500 on dev (requestIds logged) + call.completed /
