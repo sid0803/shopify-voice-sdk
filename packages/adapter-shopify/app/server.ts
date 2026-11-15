@@ -18,7 +18,6 @@ import { InMemoryCallLedger, InMemoryEventClaim, InMemoryShopStore } from "../sr
 import { defaultSettings, InMemorySettingsStore } from "../src/settings.js";
 import { TechLadderHttpClient, BatchesResource, buildScopedIdempotencyKey } from "../../core/src/index.js";
 import { verifyWebhook } from "../../core/src/webhooks/verify.js";
-import { InMemoryWebhookStore, shouldProcessEvent } from "../../core/src/webhooks/dedupe.js";
 import { toCallResult } from "../src/result.js";
 import { handleGdprWebhook } from "../src/gdpr.js";
 import { extractName, extractPhone, friendlyStoreName, headerVal, isTestDelivery, normalizePhone, scheduleSlot } from "./mapping.js";
@@ -54,7 +53,7 @@ const SHOPIFY_TOKEN = process.env["SHOPIFY_TOKEN"] ?? "";
 const TOLERANCE = Number(process.env["WEBHOOK_TOLERANCE"] ?? "300");
 
 const shops = new InMemoryShopStore();
-const seen = new InMemoryWebhookStore();
+const claims = new InMemoryEventClaim();
 const ledger = new InMemoryCallLedger();
 const claims = new InMemoryEventClaim();
 const settingsStore = new InMemorySettingsStore();
@@ -113,7 +112,7 @@ const server = createServer(async (req, res) => {
         console.log(`[shopify:ignored] shop=${shop} topic=${topic} undialable phone`);
         return send(res, 200, "ignored");
       }
-      if (settings.blockedPhones.map((p) => p.toLowerCase()).includes(phone.toLowerCase())) {
+      if (settings.blockedPhones.map((p) => p.replace(/\D/g, "")).includes(phone.replace(/\D/g, ""))) {
         console.log(`[shopify:suppressed] shop=${shop} phone on DND list`);
         return send(res, 200, "suppressed");
       }
@@ -204,7 +203,6 @@ const server = createServer(async (req, res) => {
         return send(res, 401, "bad signature");
       }
       if (!(await claims.claim(eventId))) return send(res, 200, "duplicate");
-      await shouldProcessEvent(seen, eventId);
       const envelope = JSON.parse(raw.toString("utf-8") ?? "{}") as { data?: unknown; event?: string };
       const result = toCallResult({ ...(typeof envelope === "object" ? envelope : {}), event: envelope.event }, ledgerAdapter());
       if (!result) return send(res, 200, "ignored");
