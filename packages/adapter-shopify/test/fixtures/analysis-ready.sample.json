@@ -1,0 +1,23 @@
+{
+  "_note": "CODE-DERIVED fixture, not live traffic. Built from techladder-core app/domain/developer_integrations/webhooks/service.py build_analysis_webhook_data (lines 147-167) + envelope (188-195). Replace with a real signed analysis.ready payload when backend provides one (backend-gaps B2).",
+  "event_id": "evt_replay_001",
+  "event": "analysis.ready",
+  "api_version": "2026-04-25",
+  "created_at": "2026-11-16T00:00:00Z",
+  "data": {
+    "call_id": "call_replay_001",
+    "agent_id": "agt-d24d1800",
+    "version_id": "Version 2",
+    "batch_id": "sched_replay_001",
+    "external_id": "19059874693348",
+    "phone_number": "+916297546142",
+    "call_status": "completed",
+    "transcript_status": "ready",
+    "analysis_status": "ready",
+    "summary": "Caller confirmed the COD order.",
+    "outcomes": { "order_confirmation": "confirmed" },
+    "extracted_fields": {},
+    "recording": { "available": true, "file_key": "recordings/replay.mp3" },
+    "metadata": { "external_id": "19059874693348" }
+  }
+}
