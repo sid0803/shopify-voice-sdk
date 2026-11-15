@@ -49,6 +49,8 @@ export class InMemoryCallLedger implements CallLedger {
 export interface EventClaim {
   /** Atomically claim eventId. True = first claim (process), false = duplicate. */
   claim(eventId: string): Promise<boolean> | boolean;
+  /** Release a claim so a redelivery can reprocess (transient failures only). */
+  release(eventId: string): Promise<void> | void;
 }
 
 export class InMemoryEventClaim implements EventClaim {
@@ -57,5 +59,8 @@ export class InMemoryEventClaim implements EventClaim {
     if (this.seen.has(eventId)) return false;
     this.seen.add(eventId);
     return true;
+  }
+  release(eventId: string): void {
+    this.seen.delete(eventId);
   }
 }

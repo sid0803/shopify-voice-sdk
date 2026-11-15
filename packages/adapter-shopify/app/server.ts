@@ -20,7 +20,7 @@ import { TechLadderHttpClient, BatchesResource, buildScopedIdempotencyKey } from
 import { verifyWebhook } from "../../core/src/webhooks/verify.js";
 import { toCallResult } from "../src/result.js";
 import { handleGdprWebhook } from "../src/gdpr.js";
-import { extractName, extractPhone, friendlyStoreName, headerVal, isTestDelivery, normalizePhone, scheduleSlot } from "./mapping.js";
+import { extractName, extractPhone, friendlyStoreName, headerVal, isTestDelivery, normalizePhone, scheduleSlot, withinCallingHours } from "./mapping.js";
 
 // Load techladder-sdk/.env so nothing is pasted in terminal.
 for (const p of [
@@ -106,6 +106,10 @@ const server = createServer(async (req, res) => {
       }
       const settings = (await settingsStore.get(shop)) ?? defaultSettings(shop);
       if (!settings.enabled) return send(res, 200, "disabled");
+      if (!withinCallingHours(settings.callingHours.start, settings.callingHours.end, settings.callingHours.timezone)) {
+        console.log(`[shopify:outside-hours] shop=${shop} ${settings.callingHours.start}-${settings.callingHours.end} ${settings.callingHours.timezone}`);
+        return send(res, 200, "outside-hours");
+      }
       const payload = JSON.parse(raw.toString("utf-8") ?? "{}") as Record<string, unknown>;
       const phone = normalizePhone(extractPhone(payload));
       if (!phone) {
@@ -173,6 +177,7 @@ const server = createServer(async (req, res) => {
                 Payment_Method: payment,
                 Order_Amount: total,
                 Store_Name: friendlyStoreName(shop, process.env["STORE_DISPLAY_NAME"] ?? ""),
+                ...(settings.language ? { Language: settings.language } : {}),
               },
             },
           ],
@@ -220,7 +225,11 @@ const server = createServer(async (req, res) => {
       try {
         await shopify.handleResult(result, { externalAccountId: result.externalAccountId, config: cfg });
       } catch (err) {
-        if (transientOf(err)) return send(res, 502, "transient");
+        if (transientOf(err)) {
+          // Release the claim so Shopify's/TechLadder's redelivery reprocesses.
+          await claims.release(eventId);
+          return send(res, 502, "transient");
+        }
         console.error(`[write-back:settled] ${ctx}`, String((err as Error)?.message ?? err));
         return send(res, 200, "ignored");
       }

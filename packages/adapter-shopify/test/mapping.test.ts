@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractName, extractPhone, friendlyStoreName, isTestDelivery, normalizePhone, scheduleSlot } from "../app/mapping.js";
+import { extractName, extractPhone, friendlyStoreName, isTestDelivery, normalizePhone, scheduleSlot, withinCallingHours } from "../app/mapping.js";
 
 describe("server mapping helpers", () => {
   it("finds nested phones", () => {
@@ -24,6 +24,15 @@ describe("server mapping helpers", () => {
     expect(isTestDelivery({ "X-Shopify-Test": "true" })).toBe(true);
     expect(isTestDelivery({ "x-shopify-test": "TRUE" })).toBe(true);
     expect(isTestDelivery({})).toBe(false);
+  });
+
+  it("gates calling hours including overnight windows", () => {
+    const noon = new Date("2026-11-16T06:30:00Z").getTime(); // 12:00 IST
+    expect(withinCallingHours("09:00", "21:00", "Asia/Kolkata", noon)).toBe(true);
+    expect(withinCallingHours("13:00", "21:00", "Asia/Kolkata", noon)).toBe(false);
+    expect(withinCallingHours("21:00", "09:00", "Asia/Kolkata", noon)).toBe(false);
+    const night = new Date("2026-11-16T18:30:00Z").getTime(); // 00:00 IST
+    expect(withinCallingHours("21:00", "09:00", "Asia/Kolkata", night)).toBe(true);
   });
 
   it("normalizes phones to E.164-ish form", () => {

@@ -54,6 +54,17 @@ export function normalizePhone(raw: string | null | undefined): string | null {
   return `+${digits}`;
 }
 
+/** Calling-hours gate (senior item 5). Outside the window the order is logged
+ * and skipped — never queued. Times are HH:MM in the shop's timezone. */
+export function withinCallingHours(start: string, end: string, timezone: string, nowMs = Date.now()): boolean {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false })
+    .formatToParts(new Date(nowMs))
+    .reduce<Record<string, string>>((acc, p) => ({ ...acc, [p.type]: p.value }), {});
+  const now = `${parts["hour"]}:${parts["minute"]}`;
+  if (start <= end) return now >= start && now < end;
+  return now >= start || now < end; // overnight window
+}
+
 /** Fresh schedule slot per order — never a hardcoded date. */
 export function scheduleSlot(nowMs = Date.now(), timezone = "Asia/Kolkata"): { schedule_date: string; schedule_time: string; timezone: string } {
   const inTz = new Date(nowMs + 5 * 60 * 1000);
