@@ -1,13 +1,19 @@
 // Background worker for the v1 pilot. One in-process loop consumes the durable
 // job queue; in production this should be a separate worker process, but the
 // queue interface is identical so it can move without route changes.
-import { BatchesResource } from "@techladder/core";
-import { defaultSettings, withEnvFallbacks } from "@techladder/adapter-shopify";
+import { BatchesResource, CallsResource, type CallCompletedEvent } from "@techladder/core";
+import {
+  createShopifyAdapter,
+  defaultSettings,
+  reconcileCalls,
+  withEnvFallbacks,
+} from "@techladder/adapter-shopify";
 import type { JobRecord } from "@techladder/adapter-shopify";
 import { getStores } from "./stores.server.js";
 import { processOrderJob, type OrderJobPayload } from "./orderProcessor.server.js";
 import { processResultJob, type ResultJobPayload } from "./resultProcessor.server.js";
 import { techladderClient } from "./techladder.server.js";
+import shopify from "../shopify.server.js";
 
 const IDLE_MS = 2_000;
 
@@ -26,22 +32,45 @@ async function processReconcileJob(payload: Record<string, unknown>): Promise<st
   const stores = await getStores();
   const stored = (await stores.settings.get(shop)) ?? defaultSettings(shop);
   const settings = withEnvFallbacks(stored);
-  const batches = new BatchesResource(techladderClient(settings));
-  const records = await stores.ledger.list(shop, 100);
-  let checked = 0;
-  for (const record of records) {
-    if (record.status !== "queued" && record.status !== "calling") continue;
-    const res = await batches.listCallsByExternalId(record.orderId, { limit: 20 });
-    for (const item of res.items) {
-      checked += 1;
-      if (!item.outcomes && !item.call_status) continue;
-      await processResultJob({
-        shop,
-        envelope: { event: "analysis.ready", data: item as unknown as Record<string, unknown> },
-      });
-    }
-  }
-  return `reconciled:${checked}`;
+  const client = techladderClient(settings);
+  const batches = new BatchesResource(client);
+  const calls = new CallsResource(client);
+
+  const olderThanMinutes = Number(payload["olderThanMinutes"] ?? 15);
+  const limit = Number(payload["limit"] ?? 50);
+
+  const handleResult = async (result: CallCompletedEvent) => {
+    if (!settings.tagsEnabled) return;
+    const { session } = await shopify.unauthenticated.admin(shop);
+    const adapter = createShopifyAdapter({
+      apiSecret: process.env.SHOPIFY_API_SECRET ?? "",
+      accessToken: session.accessToken,
+      tagNames: settings.tagNames,
+    });
+    await adapter.handleResult(result, {
+      externalAccountId: shop,
+      config: { apiSecret: process.env.SHOPIFY_API_SECRET ?? "", tagNames: settings.tagNames },
+    });
+  };
+
+  const summary = await reconcileCalls({
+    shop,
+    ledger: stores.ledger,
+    client: {
+      getResult: (id: string) => calls.getResult(id),
+      listCallsByExternalId: async (id: string, opts?: { limit?: number; page?: number }) => {
+        const res = await batches.listCallsByExternalId(id, opts);
+        return { items: res.items as unknown as Array<Record<string, unknown>> };
+      },
+    },
+    handleResult,
+    tagNames: settings.tagNames,
+    olderThanMinutes,
+    limit,
+    claimStore: stores.claims,
+  });
+
+  return `reconciled:${summary.reconciled}/${summary.inspected}`;
 }
 
 async function run(job: JobRecord): Promise<string> {

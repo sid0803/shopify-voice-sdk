@@ -1,7 +1,7 @@
 # Implementation plan: Shopify app shell to deployable pilot
-Date: 2026-11-16. Status: PLAN OF RECORD — Tasks 1–6 are done (shell built,
-stores/encryption wired, hardcoded order-path values removed); Task 7 is manual
-only; Tasks 8–10 and the scrub/rotation in Task 12 remain owner actions.
+Date: 2026-11-16. Status: PLAN OF RECORD — Tasks 1–7 are done (shell built,
+stores/encryption wired, hardcoded order-path values removed, reconciliation engine
+implemented + tested); Tasks 8–10 and the scrub/rotation in Task 12 remain owner actions.
 Rule compliance: backend `main` and infra were never modified; backend work is
 on feature branches only, with no PRs opened by us.
 
@@ -161,12 +161,12 @@ on feature branches only, with no PRs opened by us.
   only. Verify with `grep -E "agt-|Version [0-9]|Deepika|Kolkata|2026-"`.
 - Depends: 4. Accept: grep clean. Effort S.
 
-### Task 7 — Reconciliation job (adapter)
+### Task 7 — Reconciliation job (adapter) [DONE]
 - Goal: poll calls without outcome after N min; backfill tags.
-- Files: NEW `src/reconcile.ts` (list recent → `getResult` → `toCallResult`
-  → `handleResult`, ledger-gated, per-call claim). Cap batch size + jitter.
-- Depends: ledger (exists), outcome keys (prompt owner). Accept: simulated
-  miss gets tagged; second run no-ops. Effort S-M. Parallel: yes.
+- Files: `src/reconcile.ts` (list recent → `getResult` → `toCallResult`
+  → `handleResult`, ledger-gated, per-call claim). Wired to worker.
+- Tests: `packages/adapter-shopify/test/reconcile.test.ts` (6 tests green:
+  miss gets tagged, second run no-ops, window checks, claim-locking).
 
 ### Task 8 — Backend webhook scheduler
 - Targets re-verified (signatures only, bodies read earlier in this work):

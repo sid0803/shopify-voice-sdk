@@ -215,3 +215,4 @@ export type { JobQueue, JobRecord, JobType } from "./queue.js";
 export * from "./mapping.js";
 export { MongoShopifySessionStorage, ensureShopifySessionIndexes } from "./mongo/sessionStorage.js";
 export type { ShopifySessionLike, ShopifySessionStorageLike } from "./mongo/sessionStorage.js";
+export * from "./reconcile.js";
