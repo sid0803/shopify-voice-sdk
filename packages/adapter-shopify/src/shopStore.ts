@@ -7,7 +7,7 @@ export interface ShopRecord {
   accessToken: string;
   techladderAccountId?: string;
   scopes?: string[];
-  installedAt: string;
+  installedAt?: string;
 }
 
 export interface ShopStore {

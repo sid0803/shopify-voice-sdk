@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased (staging only)
+- Mongo stores (shops/settings/ledger/claims/sessions) with envelope
+  encryption (fail-closed), tested against fakes; `docs/deferred.md` lists
+  the end-phase tasks (visibility, rotation, live tests, deploy).
+
 ## 0.3.0 (staging only, senior prod-ready plan)
 
 - Per-shop sk_ validation (AccountResource GET /me); v1 topics narrowed.
