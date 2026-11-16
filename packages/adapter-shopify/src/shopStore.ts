@@ -5,6 +5,10 @@
 export interface ShopRecord {
   shopDomain: string;
   accessToken: string;
+  /** Expiring offline tokens rotate hourly (docs: access-tokens page) — the
+   * shell refreshes via the template and rewrites both fields atomically. */
+  refreshToken?: string;
+  tokenExpiresAt?: string;
   techladderAccountId?: string;
   scopes?: string[];
   installedAt?: string;

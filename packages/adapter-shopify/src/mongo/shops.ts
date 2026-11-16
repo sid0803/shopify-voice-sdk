@@ -7,6 +7,8 @@ import type { Col, Docs } from "./collection.js";
 export interface MongoShopDoc extends Docs {
   shopDomain: string;
   accessTokenEnc: string;
+  refreshTokenEnc: string;
+  tokenExpiresAt: string | null;
   techladderKeyEnc: string;
   scopes: string[];
   status: string;
@@ -22,6 +24,8 @@ function toDoc(shop: ShopRecord): MongoShopDoc {
   return {
     shopDomain: shop.shopDomain.toLowerCase(),
     accessTokenEnc: encryptSecret(shop.accessToken),
+    refreshTokenEnc: shop.refreshToken ? encryptSecret(shop.refreshToken) : "",
+    tokenExpiresAt: shop.tokenExpiresAt ?? null,
     techladderKeyEnc: encryptSecret(shop.techladderAccountId ?? ""),
     scopes: [],
     status: "active",
@@ -46,6 +50,8 @@ export class MongoShopStore implements ShopStore {
       shopDomain: doc.shopDomain,
       accessToken: decryptSecret(doc.accessTokenEnc),
       ...(techladderAccountId ? { techladderAccountId } : {}),
+      ...(doc.refreshTokenEnc ? { refreshToken: decryptSecret(doc.refreshTokenEnc) } : {}),
+      ...(doc.tokenExpiresAt ? { tokenExpiresAt: doc.tokenExpiresAt } : {}),
       installedAt: doc.installedAt,
     };
   }
@@ -53,7 +59,7 @@ export class MongoShopStore implements ShopStore {
   async remove(shopDomain: string): Promise<void> {
     await this.col.updateOne(
       { shopDomain: shopDomain.toLowerCase() },
-      { $set: { status: "uninstalled", uninstalledAt: new Date().toISOString(), accessTokenEnc: "", techladderKeyEnc: "" } },
+      { $set: { status: "uninstalled", uninstalledAt: new Date().toISOString(), accessTokenEnc: "", refreshTokenEnc: "", tokenExpiresAt: null, techladderKeyEnc: "" } },
     );
   }
 }

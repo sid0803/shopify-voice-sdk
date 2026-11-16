@@ -18,3 +18,5 @@ Do these together at the end, not one by one during testing.
 6. **Staging deploy + host-owned items**: public URL replaces tunnels,
    Mongo/KMS live, OAuth token flow, worker schedule, `GET list 500`
    traceback, usage/billing decision, pricing (senior's).
+7. **Shopify review gates**: protected-customer-data approval (Level 2:
+   phone/name), compliance webhooks live, token-refresh path exercised.
