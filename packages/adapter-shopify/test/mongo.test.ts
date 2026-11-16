@@ -87,15 +87,12 @@ describe("mongo shops", () => {
     vi.stubEnv("TOKEN_ENCRYPTION_KEY", TEST_KEY);
     const col = new FakeCol();
     const store = new MongoShopStore(col);
-    await store.save({ shopDomain: "Demo.Myshopify.Com", accessToken: "shpat_test_value", techladderAccountId: "acct_1", refreshToken: "refresh_test_value", tokenExpiresAt: "2026-11-16T01:00:00Z" });
+    await store.save({ shopDomain: "Demo.Myshopify.Com", accessToken: "shpat_test_value", techladderAccountId: "acct_1" });
     const raw = col.docs[0];
     expect(raw["shopDomain"]).toBe("demo.myshopify.com");
     expect(JSON.stringify(raw)).not.toContain("shpat_test_value");
-    expect(JSON.stringify(raw)).not.toContain("refresh_test_value");
     const back = await store.get("demo.myshopify.com");
     expect(back?.accessToken).toBe("shpat_test_value");
-    expect(back?.refreshToken).toBe("refresh_test_value");
-    expect(back?.tokenExpiresAt).toBe("2026-11-16T01:00:00Z");
     await store.remove("demo.myshopify.com");
     expect(await store.get("demo.myshopify.com")).toBeNull();
   });

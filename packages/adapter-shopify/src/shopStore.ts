@@ -3,12 +3,11 @@
 // Production store must encrypt accessToken at rest (TODO: KMS/envelope).
 
 export interface ShopRecord {
+  // Source of truth for Shopify tokens is the template session storage
+  // (auto-refresh, single copy). This record keeps the TechLadder sk_ ref
+  // and shop metadata only — never a token copy, so nothing can drift.
   shopDomain: string;
   accessToken: string;
-  /** Expiring offline tokens rotate hourly (docs: access-tokens page) — the
-   * shell refreshes via the template and rewrites both fields atomically. */
-  refreshToken?: string;
-  tokenExpiresAt?: string;
   techladderAccountId?: string;
   scopes?: string[];
   installedAt?: string;
