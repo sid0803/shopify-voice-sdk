@@ -8,7 +8,7 @@ import {
   withEnvFallbacks,
 } from "@techladder/adapter-shopify";
 import { getStores } from "./stores.server.js";
-import shopify from "../shopify.server";
+import { unauthenticated } from "../shopify.server.js";
 
 export interface ResultJobPayload {
   shop: string;
@@ -50,7 +50,7 @@ export async function processResultJob(payload: ResultJobPayload): Promise<strin
     return `result:${result.outcome}:tags-disabled`;
   }
 
-  const { session } = await shopify.unauthenticated.admin(shop);
+  const { session } = await unauthenticated.admin(shop);
   const adapter = createShopifyAdapter({
     apiSecret: process.env.SHOPIFY_API_SECRET ?? "",
     accessToken: session.accessToken,

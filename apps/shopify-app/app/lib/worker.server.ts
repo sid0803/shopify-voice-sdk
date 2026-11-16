@@ -13,7 +13,7 @@ import { getStores } from "./stores.server.js";
 import { processOrderJob, type OrderJobPayload } from "./orderProcessor.server.js";
 import { processResultJob, type ResultJobPayload } from "./resultProcessor.server.js";
 import { techladderClient } from "./techladder.server.js";
-import shopify from "../shopify.server.js";
+import { unauthenticated } from "../shopify.server.js";
 
 const IDLE_MS = 2_000;
 
@@ -41,7 +41,7 @@ async function processReconcileJob(payload: Record<string, unknown>): Promise<st
 
   const handleResult = async (result: CallCompletedEvent) => {
     if (!settings.tagsEnabled) return;
-    const { session } = await shopify.unauthenticated.admin(shop);
+    const { session } = await unauthenticated.admin(shop);
     const adapter = createShopifyAdapter({
       apiSecret: process.env.SHOPIFY_API_SECRET ?? "",
       accessToken: session.accessToken,
