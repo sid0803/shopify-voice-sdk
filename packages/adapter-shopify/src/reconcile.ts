@@ -179,14 +179,16 @@ export async function reconcileCalls(options: ReconcileOptions): Promise<Reconci
         status: "tagged",
         outcome: callResult.outcome,
         tagApplied: effectiveTag,
+        ...(callResult.callId && callResult.callId !== "unknown" ? { callId: callResult.callId } : {}),
         ...(callResult.callStatus ? { callStatus: callResult.callStatus } : {}),
         ...(callResult.summary ? { summary: callResult.summary } : {}),
         ...(callResult.recordingUrl ? { recordingUrl: callResult.recordingUrl } : {}),
       };
 
-      const updateKey = record.externalId || record.orderId || record.callId || "";
-      if (updateKey) {
-        await Promise.resolve(ledger.update(updateKey, patch));
+      for (const key of [record.externalId, record.callId, callResult.callId, record.orderId]) {
+        if (key && key !== "unknown") {
+          await Promise.resolve(ledger.update(key, patch));
+        }
       }
 
       summary.reconciled += 1;

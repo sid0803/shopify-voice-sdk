@@ -3,7 +3,6 @@
 // queue interface is identical so it can move without route changes.
 import { BatchesResource, CallsResource, type CallCompletedEvent } from "@techladder/core";
 import {
-  createShopifyAdapter,
   defaultSettings,
   reconcileCalls,
   withEnvFallbacks,
@@ -11,9 +10,8 @@ import {
 import type { JobRecord } from "@techladder/adapter-shopify";
 import { getStores } from "./stores.server.js";
 import { processOrderJob, type OrderJobPayload } from "./orderProcessor.server.js";
-import { processResultJob, type ResultJobPayload } from "./resultProcessor.server.js";
+import { applyOrderTag, processResultJob, type ResultJobPayload } from "./resultProcessor.server.js";
 import { techladderClient } from "./techladder.server.js";
-import { unauthenticated } from "../shopify.server.js";
 
 const IDLE_MS = 2_000;
 
@@ -41,16 +39,7 @@ async function processReconcileJob(payload: Record<string, unknown>): Promise<st
 
   const handleResult = async (result: CallCompletedEvent) => {
     if (!settings.tagsEnabled) return;
-    const { session } = await unauthenticated.admin(shop);
-    const adapter = createShopifyAdapter({
-      apiSecret: process.env.SHOPIFY_API_SECRET ?? "",
-      accessToken: session.accessToken,
-      tagNames: settings.tagNames,
-    });
-    await adapter.handleResult(result, {
-      externalAccountId: shop,
-      config: { apiSecret: process.env.SHOPIFY_API_SECRET ?? "", tagNames: settings.tagNames },
-    });
+    await applyOrderTag(shop, result, settings.tagNames);
   };
 
   const summary = await reconcileCalls({

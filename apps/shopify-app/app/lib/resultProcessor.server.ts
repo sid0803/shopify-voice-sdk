@@ -1,5 +1,6 @@
 // TechLadder result -> Shopify order tag. The ledger is the only source of
 // shop/order identity; nothing in the webhook payload is trusted for that.
+import type { CallCompletedEvent } from "@techladder/core";
 import {
   createShopifyAdapter,
   defaultSettings,
@@ -17,6 +18,23 @@ export interface ResultJobPayload {
   envelope: Record<string, unknown>;
 }
 
+export async function applyOrderTag(
+  shop: string,
+  result: CallCompletedEvent,
+  tagNames?: Record<string, string>,
+): Promise<void> {
+  const { session } = await unauthenticated.admin(shop);
+  const adapter = createShopifyAdapter({
+    apiSecret: process.env.SHOPIFY_API_SECRET ?? "",
+    accessToken: session.accessToken,
+    tagNames,
+  });
+  await adapter.handleResult(result, {
+    externalAccountId: shop,
+    config: { apiSecret: process.env.SHOPIFY_API_SECRET ?? "", tagNames },
+  });
+}
+
 export async function processResultJob(payload: ResultJobPayload): Promise<string> {
   const stores = await getStores();
   const result = await toCallResultAsync(payload.envelope, {
@@ -32,6 +50,7 @@ export async function processResultJob(payload: ResultJobPayload): Promise<strin
 
   const basePatch = {
     outcome: result.outcome,
+    ...(result.callId && result.callId !== "unknown" ? { callId: result.callId } : {}),
     ...(result.callStatus ? { callStatus: result.callStatus } : {}),
     ...(result.recordingUrl ? { recordingUrl: result.recordingUrl } : {}),
     ...(result.summary ? { summary: result.summary } : {}),
@@ -39,7 +58,7 @@ export async function processResultJob(payload: ResultJobPayload): Promise<strin
   const writeLedger = async (status: string, tagApplied?: string) => {
     const patch = { ...basePatch, status, ...(tagApplied ? { tagApplied } : {}) };
     for (const key of [result.callId, result.externalId, result.batchId ?? ""]) {
-      if (key) await stores.ledger.update(key, patch);
+      if (key && key !== "unknown") await stores.ledger.update(key, patch);
     }
   };
 
@@ -50,16 +69,7 @@ export async function processResultJob(payload: ResultJobPayload): Promise<strin
     return `result:${result.outcome}:tags-disabled`;
   }
 
-  const { session } = await unauthenticated.admin(shop);
-  const adapter = createShopifyAdapter({
-    apiSecret: process.env.SHOPIFY_API_SECRET ?? "",
-    accessToken: session.accessToken,
-    tagNames: settings.tagNames,
-  });
-  await adapter.handleResult(result, {
-    externalAccountId: shop,
-    config: { apiSecret: process.env.SHOPIFY_API_SECRET ?? "", tagNames: settings.tagNames },
-  });
+  await applyOrderTag(shop, result, settings.tagNames);
 
   await writeLedger("tagged", resolveResultTag(result, settings.tagNames));
   return `tagged:${result.outcome}`;
