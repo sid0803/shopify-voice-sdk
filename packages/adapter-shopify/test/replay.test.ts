@@ -15,8 +15,8 @@ function loadSample(): unknown {
 
 const ledger: ResultLedger = {
   lookup: (key: string) =>
-    key === "call_replay_001" || key === "19059874693348"
-      ? { shop: "dev-store-1gm9xtph.myshopify.com", orderId: "19059874693348" }
+    key === "call_replay_001" || key === "order-replay-001"
+      ? { shop: "replay.myshopify.com", orderId: "order-replay-001" }
       : null,
 };
 
@@ -24,8 +24,8 @@ describe("analysis.ready replay", () => {
   it("maps sample to confirmed and tags the ledger order", async () => {
     const result = toCallResult(loadSample(), ledger);
     expect(result?.outcome).toBe("confirmed");
-    expect(result?.externalId).toBe("19059874693348");
-    expect(result?.externalAccountId).toBe("dev-store-1gm9xtph.myshopify.com");
+    expect(result?.externalId).toBe("order-replay-001");
+    expect(result?.externalAccountId).toBe("replay.myshopify.com");
     expect(result?.summary).toContain("COD");
 
     const fetchMock = vi.fn().mockResolvedValue(
@@ -33,11 +33,11 @@ describe("analysis.ready replay", () => {
     );
     const a = createShopifyAdapter({ apiSecret: "shpss_test", accessToken: "tok", fetchImpl: fetchMock as typeof fetch });
     await a.handleResult(result!, {
-      externalAccountId: "dev-store-1gm9xtph.myshopify.com",
+      externalAccountId: "replay.myshopify.com",
       config: { apiSecret: "shpss_test" },
     });
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(String(init.body)).toContain("gid://shopify/Order/19059874693348");
+    expect(String(init.body)).toContain("gid://shopify/Order/order-replay-001");
     expect(String(init.body)).toContain("call-confirmed");
   });
 });

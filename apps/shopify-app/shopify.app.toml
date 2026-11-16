@@ -1,16 +1,22 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "830df4f8a67da9ce1898ef403c315dbf"
+# `shopify app config link` writes the Partner app's client_id here.
+# Keep it out of a public repo; each deployment links its own app.
 name = "TechLadder AI Calls"
-application_url = "https://shopify.dev/apps/default-app-home"
+# Replace with the deployed HTTPS app URL before `shopify app deploy`.
+application_url = "https://REPLACE-WITH-YOUR-HOST"
 embedded = true
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = ""
+# v1: read orders + add the outcome tag. No checkout/cart scopes.
+scopes = "read_orders,write_orders"
 
 [webhooks]
-api_version = "2027-01"
+api_version = "2026-10"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/orders/create"
+  topics = [ "orders/create" ]
 
   [[webhooks.subscriptions]]
   uri = "/webhooks/app/uninstalled"
@@ -20,8 +26,18 @@ api_version = "2027-01"
   uri = "/webhooks/app/scopes_update"
   topics = [ "app/scopes_update" ]
 
+  # Mandatory GDPR topics (customers/data_request, customers/redact, shop/redact).
+  [[webhooks.subscriptions]]
+  compliance_topics = [
+    "customers/data_request",
+    "customers/redact",
+    "shop/redact"
+  ]
+  uri = "/webhooks/gdpr"
+
 [auth]
-redirect_urls = [ "https://shopify.dev/apps/default-app-home/api/auth" ]
+# Must match the deployed app URL; replace the placeholder.
+redirect_urls = [ "https://REPLACE-WITH-YOUR-HOST/api/auth" ]
 
 [build]
 include_config_on_deploy = true

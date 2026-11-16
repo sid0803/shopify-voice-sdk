@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createShopifyAdapter } from "../src/index.js";
 import { InMemoryCallLedger, InMemoryEventClaim, InMemoryShopStore } from "../src/stores.js";
-import { defaultSettings, InMemorySettingsStore } from "../src/settings.js";
+import { defaultSettings, InMemorySettingsStore, isSettingsConfigured, withEnvFallbacks } from "../src/settings.js";
 import { TechLadderHttpClient, BatchesResource, buildScopedIdempotencyKey } from "../../core/src/index.js";
 import { verifyWebhook } from "../../core/src/webhooks/verify.js";
 import { toCallResult } from "../src/result.js";
@@ -55,7 +55,6 @@ const TOLERANCE = Number(process.env["WEBHOOK_TOLERANCE"] ?? "300");
 const shops = new InMemoryShopStore();
 const claims = new InMemoryEventClaim();
 const ledger = new InMemoryCallLedger();
-const claims = new InMemoryEventClaim();
 const settingsStore = new InMemorySettingsStore();
 const shopify = createShopifyAdapter({ apiSecret: SHOPIFY_SECRET, accessToken: SHOPIFY_TOKEN || undefined });
 
@@ -104,14 +103,25 @@ const server = createServer(async (req, res) => {
         console.log(`[shopify:uninstalled] shop=${shop} token revoked, calling stopped`);
         return send(res, 200, "uninstalled");
       }
-      const settings = (await settingsStore.get(shop)) ?? defaultSettings(shop);
+      const settings = withEnvFallbacks((await settingsStore.get(shop)) ?? defaultSettings(shop));
       if (!settings.enabled) return send(res, 200, "disabled");
+      if (!isSettingsConfigured(settings)) {
+        console.log(`[shopify:not-configured] shop=${shop} connect the TechLadder key and agent first`);
+        return send(res, 200, "not-configured");
+      }
       if (!withinCallingHours(settings.callingHours.start, settings.callingHours.end, settings.callingHours.timezone)) {
         console.log(`[shopify:outside-hours] shop=${shop} ${settings.callingHours.start}-${settings.callingHours.end} ${settings.callingHours.timezone}`);
         return send(res, 200, "outside-hours");
       }
       const payload = JSON.parse(raw.toString("utf-8") ?? "{}") as Record<string, unknown>;
-      const phone = normalizePhone(extractPhone(payload));
+      const total =
+        (payload["total_price"] as string | undefined) ??
+        (payload["total"] as string | undefined);
+      if (settings.minOrderValue > 0 && Number(total ?? 0) < settings.minOrderValue) {
+        console.log(`[shopify:filtered] shop=${shop} order below minimum value`);
+        return send(res, 200, "filtered");
+      }
+      const phone = normalizePhone(extractPhone(payload), settings.shopCountry);
       if (!phone) {
         console.log(`[shopify:ignored] shop=${shop} topic=${topic} undialable phone`);
         return send(res, 200, "ignored");
@@ -136,9 +146,6 @@ const server = createServer(async (req, res) => {
         (Array.isArray(payload["payment_gateway_names"])
           ? ((payload["payment_gateway_names"] as unknown[]).map(String).join(", ") || undefined)
           : undefined);
-      const total =
-        (payload["total_price"] as string | undefined) ??
-        (payload["total"] as string | undefined);
       if (settings.codOnly && !/cod|cash|collect|pending/i.test(payment ?? "")) {
         console.log(`[shopify:filtered] shop=${shop} order=${orderId} non-COD skipped`);
         return send(res, 200, "filtered");
@@ -152,7 +159,8 @@ const server = createServer(async (req, res) => {
       const ctx = `shop=${std.externalAccountId} order=${std.externalId}`;
       const slot = scheduleSlot(Date.now(), settings.callingHours.timezone);
       // No retries here: fast ack, Shopify redelivers on 5xx, idempotency dedupes.
-      const http = new TechLadderHttpClient({ apiKey: TL_KEY, baseUrl: TL_BASE, maxRetries: 0 });
+      // The shop's pasted key wins; env remains a staging fallback.
+      const http = new TechLadderHttpClient({ apiKey: settings.techladderKeyRef || TL_KEY, baseUrl: TL_BASE, maxRetries: 0 });
       const batches = new BatchesResource(http);
       const customerName = [firstName, lastName].filter(Boolean).join(" ") || undefined;
       const key = buildScopedIdempotencyKey(std.source, std.externalAccountId, std.eventType, std.externalId);
@@ -184,8 +192,10 @@ const server = createServer(async (req, res) => {
           idempotency_key: key,
         });
         const now = new Date().toISOString();
-        ledger.save({ shop, orderId: std.externalId, externalId: std.externalId, batchId: out.batch_id, idempotencyKey: key, status: out.status, createdAt: now, updatedAt: now });
-        await shops.save({ shopDomain: shop, accessToken: SHOPIFY_TOKEN, installedAt: now });
+        const customer = payload["customer"] as Record<string, unknown> | undefined;
+        const customerId = customer?.["id"] ? String(customer["id"]) : undefined;
+        ledger.save({ shop, orderId: std.externalId, externalId: std.externalId, ...(customerId ? { customerId } : {}), batchId: out.batch_id, idempotencyKey: key, status: out.status, createdAt: now, updatedAt: now });
+        await shops.save({ shopDomain: shop, ...(SHOPIFY_TOKEN ? { accessToken: SHOPIFY_TOKEN } : {}), installedAt: now });
         console.log(`[shopify:queued] ${ctx} batch=${out.batch_id}`);
         return send(res, 200, `queued ${out.batch_id}`);
       } catch (err) {
@@ -212,16 +222,18 @@ const server = createServer(async (req, res) => {
       const result = toCallResult({ ...(typeof envelope === "object" ? envelope : {}), event: envelope.event }, ledgerAdapter());
       if (!result) return send(res, 200, "ignored");
       const ctx = `shop=${result.externalAccountId} order=${result.externalId} outcome=${result.outcome}`;
-      const settings = (await settingsStore.get(result.externalAccountId)) ?? defaultSettings(result.externalAccountId);
+      const settings = withEnvFallbacks((await settingsStore.get(result.externalAccountId)) ?? defaultSettings(result.externalAccountId));
       if (!settings.tagsEnabled) {
         console.log(`[write-back:disabled] ${ctx}`);
         return send(res, 200, "disabled");
       }
-      const cfg = { apiSecret: SHOPIFY_SECRET, accessToken: SHOPIFY_TOKEN || undefined };
-      if (!SHOPIFY_TOKEN) {
+      const shopRecord = await shops.get(result.externalAccountId);
+      const token = shopRecord?.accessToken || SHOPIFY_TOKEN;
+      if (!token) {
         console.log(`[write-back:log-only] ${ctx}`);
         return send(res, 200, "logged");
       }
+      const cfg = { apiSecret: SHOPIFY_SECRET, accessToken: token, tagNames: settings.tagNames };
       try {
         await shopify.handleResult(result, { externalAccountId: result.externalAccountId, config: cfg });
       } catch (err) {

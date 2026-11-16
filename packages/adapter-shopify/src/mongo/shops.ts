@@ -21,12 +21,12 @@ export async function ensureShopIndexes(col: Col): Promise<void> {
 function toDoc(shop: ShopRecord): MongoShopDoc {
   return {
     shopDomain: shop.shopDomain.toLowerCase(),
-    accessTokenEnc: encryptSecret(shop.accessToken),
-    techladderKeyEnc: encryptSecret(shop.techladderAccountId ?? ""),
-    scopes: [],
-    status: "active",
+    accessTokenEnc: shop.accessToken ? encryptSecret(shop.accessToken) : "",
+    techladderKeyEnc: shop.techladderAccountId ? encryptSecret(shop.techladderAccountId) : "",
+    scopes: shop.scopes ?? [],
+    status: shop.status ?? "installed",
     installedAt: shop.installedAt ?? new Date().toISOString(),
-    uninstalledAt: null,
+    uninstalledAt: shop.uninstalledAt ?? null,
   };
 }
 
@@ -42,18 +42,29 @@ export class MongoShopStore implements ShopStore {
     const doc = (await this.col.findOne({ shopDomain: shopDomain.toLowerCase() })) as MongoShopDoc | null;
     if (!doc || doc.uninstalledAt) return null;
     const techladderAccountId = doc.techladderKeyEnc ? decryptSecret(doc.techladderKeyEnc) : "";
+    const accessToken = doc.accessTokenEnc ? decryptSecret(doc.accessTokenEnc) : "";
     return {
       shopDomain: doc.shopDomain,
-      accessToken: decryptSecret(doc.accessTokenEnc),
+      ...(accessToken ? { accessToken } : {}),
       ...(techladderAccountId ? { techladderAccountId } : {}),
+      scopes: doc.scopes,
+      status: doc.status,
       installedAt: doc.installedAt,
     };
   }
 
   async remove(shopDomain: string): Promise<void> {
+    const now = new Date().toISOString();
     await this.col.updateOne(
       { shopDomain: shopDomain.toLowerCase() },
-      { $set: { status: "uninstalled", uninstalledAt: new Date().toISOString(), accessTokenEnc: "", techladderKeyEnc: "" } },
+      {
+        $set: {
+          status: "uninstalled",
+          uninstalledAt: now,
+          accessTokenEnc: "",
+          techladderKeyEnc: "",
+        },
+      },
     );
   }
 }

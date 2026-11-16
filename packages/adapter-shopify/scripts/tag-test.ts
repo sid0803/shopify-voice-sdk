@@ -1,5 +1,5 @@
 // Manual tag write-back check (test store only). Env only, never commit.
-// SHOPIFY_SHOP=dev-store-1gm9xtph.myshopify.com SHOPIFY_TOKEN=shpat_... ORDER_ID=19056286826724 npx tsx scripts/tag-test.ts
+// SHOPIFY_SHOP=<shop>.myshopify.com SHOPIFY_TOKEN=... ORDER_ID=... npx tsx scripts/tag-test.ts
 import { createShopifyAdapter } from "../src/index.js";
 
 const shop = process.env["SHOPIFY_SHOP"] ?? "";

@@ -5,6 +5,11 @@ import { createReadableStreamFromReadable } from "@react-router/node";
 import { type EntryContext } from "react-router";
 import { isbot } from "isbot";
 import { addDocumentResponseHeaders } from "./shopify.server";
+import { ensureWorkerStarted } from "./lib/worker.server";
+
+// Start the durable job consumer once per server process. In production this
+// can be moved to a dedicated worker without changing webhook routes.
+ensureWorkerStarted();
 
 export const streamTimeout = 5000;
 

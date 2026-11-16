@@ -3,12 +3,56 @@
 // shop/redact: delete the shop. customers/data_request: export the customer's
 // call log. app/uninstalled: revoke the token and stop calling.
 import type { ShopStore } from "./shopStore.js";
+import type { CallLedger } from "./stores.js";
 
-export type GdprTopic = "customers/data_request" | "customers/redact" | "shop/redact" | "app/uninstalled" | string;
+export type GdprTopic =
+  | "customers/data_request"
+  | "customers/redact"
+  | "shop/redact"
+  | "app/uninstalled"
+  | string;
 
 export interface GdprStore extends ShopStore {
   deleteCustomerData?(shopDomain: string, customerId: string): Promise<void> | void;
   customerCallLog?(shopDomain: string, customerId: string): Promise<unknown> | unknown;
+  /** shop/redact only: delete the shop's call rows (not called on uninstall). */
+  deleteShopData?(shopDomain: string): Promise<void> | void;
+}
+
+export interface GdprCallLedger extends Pick<CallLedger, "deleteCustomerData" | "customerCallLog" | "deleteShop"> {}
+
+export interface GdprSettingsStore {
+  remove?(externalAccountId: string): Promise<void> | void;
+}
+
+/**
+ * Combine the shop store with the call ledger (and optionally settings) so a
+ * single handler can satisfy all four topics. Shop removal also clears that
+ * shop's call rows and encrypted settings when the stores support it.
+ */
+export function createGdprStore(
+  shopStore: ShopStore,
+  ledger?: GdprCallLedger,
+  settings?: GdprSettingsStore,
+): GdprStore {
+  return {
+    save: (shop) => shopStore.save(shop),
+    get: (shopDomain) => shopStore.get(shopDomain),
+    async remove(shopDomain) {
+      // Uninstall stops calling but keeps data until shop/redact.
+      await shopStore.remove(shopDomain);
+    },
+    async deleteShopData(shopDomain) {
+      if (ledger?.deleteShop) await ledger.deleteShop(shopDomain);
+      if (settings?.remove) await settings.remove(shopDomain);
+    },
+    async deleteCustomerData(shopDomain, customerId) {
+      if (ledger?.deleteCustomerData) await ledger.deleteCustomerData(shopDomain, customerId);
+    },
+    async customerCallLog(shopDomain, customerId) {
+      return ledger?.customerCallLog ? ledger.customerCallLog(shopDomain, customerId) : [];
+    },
+  };
 }
 
 function customerIdOf(payload: unknown): string {
@@ -27,6 +71,7 @@ export async function handleGdprWebhook(
   const shop = shopDomain.toLowerCase();
   if (topic === "shop/redact" || topic === "app/uninstalled") {
     await store.remove(shop);
+    if (topic === "shop/redact" && store.deleteShopData) await store.deleteShopData(shop);
     return { status: 200, body: { deleted_shop: shop } };
   }
   if (topic === "customers/redact") {

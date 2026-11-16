@@ -1,34 +1,32 @@
 # Implementation plan: Shopify app shell to deployable pilot
-Date: 2026-11-16. Status: PLAN OF RECORD — Tasks 4 and 6 are done;
-`apps/shopify-app` is scaffolded (Task 1 in progress).
-Rule compliance at first write: this file was the only change in the SDK
-repo; backend repo untouched (branch `feat/sdk-public-rate-limit`, tree
-clean); no commits, switches, stashes, pushes, installs, or scaffolds.
+Date: 2026-11-16. Status: PLAN OF RECORD — Tasks 1–6 are done (shell built,
+stores/encryption wired, hardcoded order-path values removed); Task 7 is manual
+only; Tasks 8–10 and the scrub/rotation in Task 12 remain owner actions.
+Rule compliance: backend `main` and infra were never modified; backend work is
+on feature branches only, with no PRs opened by us.
 
 ## 1. Current state (verified this session)
 
 ### Repos
-- SDK repo: branch `main`, HEAD `bf3454d`, tree CLEAN. No `.env`/secrets
-  tracked (`git ls-files` shows only `.env.example` + a filename hit on
-  `envelope.ts`). Public personal repo, pushed through `bf3454d`.
-- Backend repo: branch `feat/sdk-public-rate-limit`, tree CLEAN. Local
-  branches `feat/sdk-post-calls-idempotency` (`e16eb410` B1-a + `ee889dd1`
-  B2), `feat/sdk-usage-endpoint` (`dd869807` B3). All unpushed. `main` and
-  `origin/main` (`10efdff2`) untouched. Infra branch
-  `feat/sdk-webhook-worker-schedule` exists, zero writes.
+- SDK repo: branch `main`, HEAD `b3b9f06` before the current audit changes.
+  Current files contain only `.env.example` (names, no values) and fake
+  fixtures. Public personal repo.
+- Backend repo: B1/B2, B3 and B4 are pushed to feature branches
+  (`ee889dd1`, `dd869807`, `b8b32112` + `51cee1b`). `main` and
+  `origin/main` (`10efdff2`) untouched. No PRs opened.
+- Infra branch `feat/sdk-webhook-worker-schedule` exists, zero writes.
 
-### Tests (run this session)
-- `packages/core` 24/24, `packages/adapter-shopify` 22/22,
-  `packages/adapter-webhook` 4/4 — 50 total, green.
-- Backend suites pass at commit time (switching branches to re-run is
-  forbidden by this brief): B1 file 6, B2 crash-hunt 1, B3 1, B4 5,
-  minimization 48.
+### Tests (latest audit run)
+- `packages/core` 24/24, `packages/adapter-shopify` 57/57,
+  `packages/adapter-webhook` 4/4 — 85 total, green. Workspace `typecheck` and
+  `pnpm --filter app build` also green.
 
-### Layout (read this session)
-- `pnpm-workspace.yaml`: `packages: ["packages/*"]`. No `apps/` dir.
+### Layout
+- `pnpm-workspace.yaml`: `packages: ["packages/*", "apps/*"]`.
 - Root `package.json`: private, `packageManager pnpm@9.0.0`, scripts
-  build/test/lint/typecheck (recursive). NOTE: this machine has no pnpm;
-  all verification here used npm/npx. CI uses pnpm.
+  build/test/lint/typecheck (recursive), root `pnpm.overrides` for `qs`.
+- `apps/shopify-app` is the deployable shell; it depends on core + adapter via
+  `workspace:*` and builds both in `predev`/`prebuild`.
 - `packages/adapter-shopify/package.json`: deps `mongodb ^7.9.0`,
   `zod ^3.23.8`; engines `node >= 18`.
 - **Recommendation: scaffold at `packages/adapter-shopify/shopify-app/`.**
@@ -47,9 +45,11 @@ clean); no commits, switches, stashes, pushes, installs, or scaffolds.
   tags, `src/result.ts`, `src/settings.ts`, `src/stores.ts`,
   `src/shopStore.ts`, `src/gdpr.ts`, `src/shopifyConfig.ts`,
   `app/mapping.ts`, replay fixture + test).
-- Missing: Remix shell, `shopify.app.toml`, OAuth, Mongo-backed stores
-  (interfaces + in-memory only), embedded UI, staging deploy, worker
-  schedule, real-payload replay, rotation/scrub.
+- Missing: staging deploy, worker schedule (Task 8), real-payload replay, live
+  order tests, rotation/scrub (Task 12), Shopify billing/listing.
+- Built since: `apps/shopify-app`, `shopify.app.toml`, Mongo-backed stores,
+  encrypted Shopify sessions, embedded Connect/Settings/Call-log UI, durable
+  queue + in-process worker, GDPR routes, replay fixture sanitized to fakes.
 
 ## 2. Brief mismatches found while verifying
 
@@ -181,10 +181,10 @@ clean); no commits, switches, stashes, pushes, installs, or scaffolds.
 - Accept: `call.completed` delivered within one interval. Effort S code,
   M coordination.
 
-### Task 9 — Backend PRs (exist, unpushed)
-- Push order: B1-a, B3, B4 (independent); B2 rides with B1-a. Add the
-  `call_id: null` note to B1-a's description at push time. Then reviews,
-  merges, staging deploy. Effort: mostly waiting + fix-ups day.
+### Task 9 — Backend PRs (branches pushed)
+- Branches exist: B1-a + B2 (`ee889dd1`), B3 (`dd869807`), B4 (`b8b32112` +
+  `51cee1b`). Next: owner review, then merge + staging deploy. Add the
+  `call_id: null` note to B1-a's description at PR time.
 
 ### Task 10 — Deployment pack (senior/host)
 - Build/start: `pnpm install --frozen-lockfile`, `pnpm -r build`

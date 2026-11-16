@@ -28,8 +28,10 @@ export interface ShopifyAdapterConfig {
   apiSecret: string;
   /** Store Admin API token for write-back. From OAuth, per-shop. */
   accessToken?: string;
-  /** e.g. "2026-01". UNVERIFIED — confirm latest stable with senior. */
+  /** Defaults to SHOPIFY_API_VERSION; keep in sync with shopify.app.toml. */
   apiVersion?: string;
+  /** Optional merchant tag overrides keyed by default tag name. */
+  tagNames?: Record<string, string>;
   fetchImpl?: typeof fetch;
 }
 
@@ -88,6 +90,21 @@ export function executionStatusToTag(status: CallExecutionStatus): string {
   }
 }
 
+/**
+ * Single source of truth for the tag a result writes. The write-back and the
+ * admin call log both use this, so the log can never claim a different tag.
+ */
+export function resolveResultTag(
+  result: Pick<CallCompletedEvent, "outcome" | "callStatus">,
+  tagNames: Record<string, string> = {},
+): string {
+  const base =
+    result.callStatus !== undefined && result.callStatus !== "completed"
+      ? executionStatusToTag(result.callStatus)
+      : outcomeToTag(result.outcome);
+  return tagNames[base] ?? tagNames[result.outcome] ?? base;
+}
+
 /** Map Shopify topic -> neutral eventType. v1: orders/create only (senior item 2).
  * orders/updated, checkouts/*, carts/update are parked — they fire for old or
  * in-progress orders and caused calls that should never have happened. */
@@ -135,10 +152,7 @@ export function createShopifyAdapter(config: ShopifyAdapterConfig): PlatformAdap
       // Business disposition decides the tag; a non-completed execution status
       // (no conversation occurred) maps via execution status instead (prompt v2.0 section 10E).
       // Absent callStatus means completed — the call.completed path.
-      const tag =
-        result.callStatus !== undefined && result.callStatus !== "completed"
-          ? executionStatusToTag(result.callStatus)
-          : outcomeToTag(result.outcome);
+      const effectiveTag = resolveResultTag(result, ctx.config.tagNames ?? config.tagNames ?? {});
       // Atomic GraphQL tagsAdd (senior item 2) — no read-modify-write race,
       // merchant tags are never clobbered.
       const fetchImpl = config.fetchImpl ?? fetch;
@@ -152,7 +166,7 @@ export function createShopifyAdapter(config: ShopifyAdapterConfig): PlatformAdap
         headers,
         body: JSON.stringify({
           query: "mutation tagsAdd($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { field message } } }",
-          variables: { id: gid, tags: [tag] },
+          variables: { id: gid, tags: [effectiveTag] },
         }),
         signal: AbortSignal.timeout(15_000),
       });
@@ -168,3 +182,36 @@ export function createShopifyAdapter(config: ShopifyAdapterConfig): PlatformAdap
     },
   };
 }
+
+// Re-exports for the embedded Shopify shell (and any other host) so it never
+// needs to deep-import package internals.
+export * from "./settings.js";
+export * from "./stores.js";
+export * from "./result.js";
+export * from "./gdpr.js";
+export {
+  SHOPIFY_ALL_WEBHOOK_TOPICS,
+  SHOPIFY_API_VERSION,
+  SHOPIFY_GDPR_TOPICS,
+  SHOPIFY_SCOPES,
+  SHOPIFY_WEBHOOK_TOPICS,
+} from "./shopifyConfig.js";
+export { MongoShopStore, ensureShopIndexes } from "./mongo/shops.js";
+export {
+  MongoCallLedger,
+  MongoEventClaim,
+  MongoSessionStore,
+  MongoSettingsStore,
+  ensureCallIndexes,
+  ensureEventIndexes,
+  ensureSessionIndexes,
+  ensureSettingsIndexes,
+} from "./mongo/stores.js";
+export { closeMongo, getDb } from "./mongo/client.js";
+export { decryptSecret, encryptSecret } from "./mongo/crypto.js";
+export type { Col, Docs } from "./mongo/collection.js";
+export { InMemoryJobQueue, MongoJobQueue, ensureJobIndexes } from "./queue.js";
+export type { JobQueue, JobRecord, JobType } from "./queue.js";
+export * from "./mapping.js";
+export { MongoShopifySessionStorage, ensureShopifySessionIndexes } from "./mongo/sessionStorage.js";
+export type { ShopifySessionLike, ShopifySessionStorageLike } from "./mongo/sessionStorage.js";

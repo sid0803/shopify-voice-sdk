@@ -19,7 +19,9 @@ export default function App() {
     <AppProvider apiKey={apiKey}>
       <s-app-nav>
         <s-link href="/app">Home</s-link>
-        <s-link href="/app/additional">Additional page</s-link>
+        <s-link href="/app/connect">Connect</s-link>
+        <s-link href="/app/settings">Settings</s-link>
+        <s-link href="/app/calls">Call log</s-link>
       </s-app-nav>
       <Outlet />
     </AppProvider>

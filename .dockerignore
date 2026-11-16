@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+**/dist
+**/build
+**/.react-router
+**/.cache
+.git
+.shopify
+**/*.sqlite
+**/*.sqlite-journal
+.env
+.env.*

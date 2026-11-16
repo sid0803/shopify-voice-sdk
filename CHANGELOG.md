@@ -1,7 +1,21 @@
 # Changelog
 
 ## Unreleased (staging only)
-- Mongo stores (shops/settings/ledger/claims/sessions) with envelope
+- Deployable Shopify shell at `apps/shopify-app`: embedded Connect / Settings /
+  Call-log UI, fast-ack webhooks, durable worker, GDPR dispatcher, atomic
+  `tagsAdd` write-back.
+- Adapter audit hardening: IANA timezone validation, phone numbers that already
+  contain a country code are no longer double-prefixed, one `resolveResultTag`
+  resolver used by both write-back and the call log, execution-status tags,
+  queue `runAt` scheduling + stale-lease reclaim + GDPR purge, encrypted
+  settings deletion on shop/redact.
+- Fail-closed Mongo/key configuration: `MONGODB_URI` requires
+  `TOKEN_ENCRYPTION_KEY` (no silent SQLite fallback).
+- Duplicate/dead code removed (unused product webhook route, template page,
+  dead settings loader); repo scripts now take every value from env.
+- Current files scrubbed of real phone numbers, order ids and shop domains;
+  history scrub + rotation still deferred.
+- Mongo stores (shops/settings/ledger/claims/sessions/jobs) with envelope
   encryption (fail-closed), tested against fakes; `docs/deferred.md` lists
   the end-phase tasks (visibility, rotation, live tests, deploy).
 

@@ -12,27 +12,43 @@ export interface CallRecord {
   externalId: string;
   callId?: string;
   batchId?: string;
+  /** Shopify customer id. Required for customers/redact + data_request. */
+  customerId?: string;
   idempotencyKey: string;
   status: string;
   outcome?: string;
+  callStatus?: string;
   tagApplied?: string;
+  recordingUrl?: string;
+  summary?: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface CallLedger {
   save(record: CallRecord): Promise<void> | void;
-  /** Lookup by TechLadder callId first, then platform externalId. */
+  /** Lookup by TechLadder callId, then batchId, then platform externalId. */
   lookup(key: string): Promise<{ shop: string; orderId: string } | null> | { shop: string; orderId: string } | null;
   update(key: string, patch: Partial<CallRecord>): Promise<void> | void;
+  /** Read-only call log for the embedded admin screen. */
+  list(shop: string, limit?: number): Promise<CallRecord[]> | CallRecord[];
+  /** GDPR customers/redact: delete one customer's rows only, never the shop. */
+  deleteCustomerData?(shop: string, customerId: string): Promise<void> | void;
+  /** GDPR customers/data_request: return that customer's call log. */
+  customerCallLog?(shop: string, customerId: string): Promise<CallRecord[]> | CallRecord[];
+  /** shop/redact: delete every call row for a shop. */
+  deleteShop?(shop: string): Promise<void> | void;
 }
 
 export class InMemoryCallLedger implements CallLedger {
   private readonly byKey = new Map<string, CallRecord>();
+  private readonly records = new Map<string, CallRecord>();
 
   save(record: CallRecord): void {
     this.byKey.set(record.externalId, record);
     if (record.callId) this.byKey.set(record.callId, record);
+    if (record.batchId) this.byKey.set(record.batchId, record);
+    this.records.set(record.externalId, record);
   }
 
   lookup(key: string): { shop: string; orderId: string } | null {
@@ -42,7 +58,44 @@ export class InMemoryCallLedger implements CallLedger {
 
   update(key: string, patch: Partial<CallRecord>): void {
     const r = this.byKey.get(key);
-    if (r) this.byKey.set(key, { ...r, ...patch, updatedAt: new Date().toISOString() });
+    if (!r) return;
+    const next = { ...r, ...patch, updatedAt: new Date().toISOString() };
+    this.save(next);
+  }
+
+  list(shop: string, limit = 100): CallRecord[] {
+    return [...this.records.values()]
+      .filter((r) => r.shop === shop.toLowerCase())
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, limit);
+  }
+
+  deleteCustomerData(shop: string, customerId: string): void {
+    for (const [externalId, r] of this.records) {
+      if (r.shop === shop.toLowerCase() && r.customerId === customerId) {
+        this.records.delete(externalId);
+        this.byKey.delete(externalId);
+        if (r.callId) this.byKey.delete(r.callId);
+        if (r.batchId) this.byKey.delete(r.batchId);
+      }
+    }
+  }
+
+  customerCallLog(shop: string, customerId: string): CallRecord[] {
+    return [...this.records.values()].filter(
+      (r) => r.shop === shop.toLowerCase() && r.customerId === customerId,
+    );
+  }
+
+  deleteShop(shop: string): void {
+    for (const [externalId, r] of this.records) {
+      if (r.shop === shop.toLowerCase()) {
+        this.records.delete(externalId);
+        this.byKey.delete(externalId);
+        if (r.callId) this.byKey.delete(r.callId);
+        if (r.batchId) this.byKey.delete(r.batchId);
+      }
+    }
   }
 }
 

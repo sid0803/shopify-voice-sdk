@@ -1,18 +1,20 @@
+# Build from the REPOSITORY ROOT so pnpm workspace packages resolve:
+#   docker build -f apps/shopify-app/Dockerfile -t techladder-shopify .
 FROM node:22-alpine
-RUN apk add --no-cache openssl
 
-EXPOSE 3000
-
+RUN apk add --no-cache openssl && corepack enable
 WORKDIR /app
-
 ENV NODE_ENV=production
 
-COPY package.json package-lock.json* ./
-
-RUN npm ci --omit=dev && npm cache clean --force
-
+# Copy the whole workspace: apps/shopify-app depends on packages/core and
+# packages/adapter-shopify via workspace:*.
 COPY . .
 
-RUN npm run build
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @techladder/core build \
+ && pnpm --filter @techladder/adapter-shopify build \
+ && pnpm --filter app exec prisma generate \
+ && pnpm --filter app build
 
-CMD ["npm", "run", "docker-start"]
+EXPOSE 3000
+CMD ["pnpm", "--filter", "app", "start"]

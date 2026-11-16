@@ -1,5 +1,5 @@
-// One-shot agent-reference check (dev only). Proves whether the dedicated
-// Shopify agent resolves under this sk_ before blaming webhooks.
+// One-shot agent-reference check (dev only). Proves whether the configured
+// agent resolves under this sk_ before blaming webhooks. All values via env.
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,23 +14,35 @@ for (const p of [join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..",
   break;
 }
 
+function required(name: string): string {
+  const value = (process.env[name] ?? "").trim();
+  if (!value) throw new Error(`Set ${name}`);
+  return value;
+}
+
 async function main(): Promise<void> {
   const client = new TechLadderHttpClient({
-    apiKey: process.env["TECHLADDER_API_KEY"] ?? "",
-    baseUrl: process.env["TECHLADDER_BASE_URL"] ?? "",
+    apiKey: required("TECHLADDER_API_KEY"),
+    baseUrl: required("TECHLADDER_BASE_URL"),
   });
   const batches = new BatchesResource(client);
+  const externalId = process.env["EXTERNAL_ID"] ?? "agent-check";
   const res = await batches.createIdempotent({
-    agent_id: "agt-d24d1800",
-    version_name: "Version 2",
+    agent_id: required("AGENT_ID"),
+    version_name: required("AGENT_VERSION"),
     interruption: true,
     use_alternate_number: false,
     start_mode: "immediate",
-    schedule_date: "2026-11-14",
-    schedule_time: "10:00",
-    timezone: "Asia/Kolkata",
-    contacts: [{ external_id: "agent-check-1", phone_number: "9999999999" }],
-    idempotency_key: buildScopedIdempotencyKey("shopify", "dev-store-1gm9xtph.myshopify.com", "order_confirmation", "agent-check-1"),
+    schedule_date: new Date().toISOString().slice(0, 10),
+    schedule_time: process.env["SCHEDULE_TIME"] ?? "10:00",
+    timezone: required("SCHEDULE_TIMEZONE"),
+    contacts: [{ external_id: externalId, phone_number: required("CONTACT_PHONE") }],
+    idempotency_key: buildScopedIdempotencyKey(
+      "shopify",
+      process.env["SHOPIFY_SHOP"] ?? "local.example.myshopify.com",
+      "order_confirmation",
+      externalId,
+    ),
   });
   console.log(res.batch_id, res.status);
 }

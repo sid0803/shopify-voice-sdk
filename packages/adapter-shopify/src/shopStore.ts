@@ -1,16 +1,18 @@
-// Per-shop token store interface (OAuth result).
-// Shopify specifics stay in adapter-shopify. Core never sees tokens.
-// Production store must encrypt accessToken at rest (TODO: KMS/envelope).
+// Per-shop record interface (install metadata only).
+// Shopify access tokens live in the template session storage (auto-refresh,
+// single copy). This record intentionally does NOT store a token in the shell;
+// `accessToken` remains optional for the legacy standalone connector only.
+// Production stores still encrypt any token/secret they do write (KMS/envelope).
 
 export interface ShopRecord {
-  // Source of truth for Shopify tokens is the template session storage
-  // (auto-refresh, single copy). This record keeps the TechLadder sk_ ref
-  // and shop metadata only — never a token copy, so nothing can drift.
   shopDomain: string;
-  accessToken: string;
+  /** Legacy standalone connector only. The shell leaves this unset. */
+  accessToken?: string;
   techladderAccountId?: string;
   scopes?: string[];
+  status?: "installed" | "uninstalled" | string;
   installedAt?: string;
+  uninstalledAt?: string;
 }
 
 export interface ShopStore {
@@ -23,7 +25,7 @@ export class InMemoryShopStore implements ShopStore {
   private readonly map = new Map<string, ShopRecord>();
 
   async save(shop: ShopRecord): Promise<void> {
-    this.map.set(shop.shopDomain.toLowerCase(), shop);
+    this.map.set(shop.shopDomain.toLowerCase(), { ...shop, shopDomain: shop.shopDomain.toLowerCase() });
   }
 
   async get(shopDomain: string): Promise<ShopRecord | null> {
