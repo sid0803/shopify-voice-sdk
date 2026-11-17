@@ -50,7 +50,9 @@ Create-batch request (aliases accepted, e.g. `agent_name|agent_id`, `version_nam
 
 File: `techladder-core/app/domain/developer_integrations/calls/router.py`
 
-- `POST /calls` -> 202 `{call queued}` — `router.py:45-56`
+- `POST /calls` -> **202 first create, 200 idempotent replay** (same account + `idempotency_key` returns the existing batch with `data.idempotent=true`; same envelope shape, both declared in OpenAPI) — `router.py:45-82`
+- Breaking (B1-a): `data.call_id` is **always null at create time** (dialer assigns later); `data.batch_id` is the stable handle — poll `GET /call-batches/{batch_id}` or use webhooks. Webhook consumers (incl. `call.queued`, which is still emitted on single-call create) must tolerate a null `call_id`
+- `403` when credit exhausted: single calls now pass `enforce_credit_limit` like batches (new gate vs the old path). Immediate single-contact batches insert as `status=pending, start_mode=immediate` and are picked up by the same dispatcher as dashboard batches
 - `POST /calls/test` -> 202 — `router.py:31-42`
 - `GET /calls?agent_id&version_id&batch_id&status&external_id&phone_number&is_test&created_at_from&created_at_to&limit(<=200)&page` — `router.py:59-95`
 - `GET /calls/{call_id}` — `router.py:98-109`
