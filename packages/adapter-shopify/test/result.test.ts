@@ -86,6 +86,12 @@ describe("toCallResult", () => {
     );
     expect(out?.externalId).toBe("ord-9");
   });
+
+  it("ignores lifecycle events (BUG-004: batch.started/cancelled, call.queued)", () => {
+    expect(toCallResult({ event: "batch.started", data: { call_id: "c1" } }, ledger)).toBeNull();
+    expect(toCallResult({ event: "batch.cancelled", data: { batch_id: "b1" } }, ledger)).toBeNull();
+    expect(toCallResult({ event: "call.queued", data: { call_id: "c1" } }, ledger)).toBeNull();
+  });
 });
 
 describe("resolveResultTag", () => {

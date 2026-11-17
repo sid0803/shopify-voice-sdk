@@ -43,6 +43,12 @@ export interface IdempotentCreateBatchRequest extends CreateBatchRequest {
   idempotency_key: string;
 }
 
+function assertIdempotencyKey(key: string): void {
+  // Backend BUG-013: whitespace-only keys degrade to non-idempotent.
+  if (!key.trim()) throw new Error("idempotency_key must not be blank");
+  if (key.length > 128) throw new Error("idempotency_key must be 1-128 chars");
+}
+
 export interface CreateBatchResponse {
   batch_id: string;
   agent_id: string;
@@ -114,6 +120,7 @@ export class BatchesResource {
 
   /** PUT /call-batches — idempotent via body idempotency_key. 201 first, 200 + idempotent:true on repeat. */
   async createIdempotent(payload: IdempotentCreateBatchRequest): Promise<CreateBatchResponse> {
+    assertIdempotencyKey(payload.idempotency_key);
     const env = await this.http.request<ApiEnvelope<CreateBatchResponse>>({
       method: "PUT",
       path: "/call-batches",

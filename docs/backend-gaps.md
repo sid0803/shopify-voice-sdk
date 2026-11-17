@@ -78,3 +78,68 @@ another repo (techladder-core) — nothing outside techladder-sdk/ was touched.
 8. Rate limits + error codes: no rate-limit middleware on `/public/*` found; `429` shape UNVERIFIED. `DeveloperApiError{code, details[]}` confirmed (`response_schemas.py`) but code strings (e.g. `rate_limited` in `app/api/v2/errors.py:38`) not confirmed for public v1.
 9. Order lookup during call: no public order/inbound-lookup endpoint in `developer_integrations/`. If voice agent needs Shopify order data mid-call, backend must add it or adapter injects into `context` at batch create.
 10. Base URLs: production/staging hosts not in code. Need official values.
+
+## Senior bug-report 2026-11-17 (4 PRs: #737/#738/#739 + infra #108) — verified, SDK-side fixed
+All 17 claims verified read-only against the feature branches (no core/infra
+commits — AGENTS.md forbids SDK work there). SDK hardening shipped in this
+repo; backend patches below are suggestions for the branch owners.
+
+SDK changes in this repo:
+- `packages/core/src/resources/usage.ts` (new): explicit `UsageTier`
+  {limit, consumption, remaining, status} instead of `dict[str,Any]`
+  passthrough (BUG-008); rejects empty `account_id` (BUG-007); docs warn
+  not to poll — full lifetime recompute per GET (BUG-002).
+- `packages/core/src/resources/calls.ts`: `call_id: string | null`
+  (BUG-011 — batch_id is the stable handle); rejects blank/whitespace
+  `idempotency_key` before send (BUG-013); documents 200-on-replay.
+- `packages/core/src/resources/batches.ts`: rejects blank
+  `idempotency_key` on PUT (BUG-013).
+- `packages/adapter-shopify/src/result.ts`: `toCallResult` now ignores
+  `batch.started` / `batch.cancelled` / `call.queued` lifecycle events
+  (BUG-004) — only `analysis.ready` / `call.completed` / `call.failed` /
+  `call.no_answer` produce tags.
+- 429 handling unchanged (core http retries 429/5xx + Retry-After; shell
+  worker treats 429 as transient). Per-key vs per-account (BUG-009) is
+  documented as intentional per-key; `user:unknown` fallback (BUG-010) is
+  unreachable via wired auth but still fail-open hardened suggested.
+
+Backend patches suggested (apply on the feature branches, not main):
+- BUG-001 HIGH `infra/terraform/modules/webhook-scheduler/main.tf:41-49`:
+  scope `iam:PassRole` resources from `["*"]` to the worker task roles:
+  `resources = [var.task_execution_role_arn, var.task_role_arn]` +
+  `test = "StringEquals"`. Add the two role-ARN variables.
+- BUG-005 `main.tf:6-8`: delete dead `data.aws_partition/aws_region/
+  aws_caller_identity` blocks (zero references).
+- BUG-015 `main.tf:68-92`: add `retry_policy { maximum_retry_attempts = 2,
+  maximum_event_age_in_seconds = 300 }` + FailedInvocations alarm.
+- BUG-016: overlapping 2-min runs rely on app `$addToSet` dedupe — record as
+  accepted risk; consider longer default interval if p99 worker > 2 min.
+- BUG-017: `launch_type` EC2 default + unconditional `network_configuration`
+  (awsvpc-only valid). Confirm task-def `network_mode` at wiring; add
+  validation / dynamic block.
+- BUG-002 `usage/service.py:14-16`: bound the aggregation (date filter,
+  pagination, or short-TTL cache). v1 lifetime by design — at least add
+  `Cache-Control: private, max-age=60` + document no-poll.
+- BUG-006 `credits/service.py::ensure_credit_doc`: GET mints a doc. Accept
+  knowingly or split read-only `get_credit_doc` + lazy backfill.
+- BUG-007 `usage/service.py:14-15`: `if not client_id: raise 401/422`.
+- BUG-008 `usage/schemas.py:14`: explicit schema, not passthrough.
+- BUG-003 `deps.py:308-315` vs `agent_api/router.py`: call
+  `check_public_rate_limit` in `get_current_user` API-key branch too, or
+  document `/public/agents` exemption. Same for `get_current_user_public`.
+- BUG-009 `rate_limit.py:50-62`: document per-key intent (commit says
+  per-key) or bucket by user/account id for per-account enforcement.
+- BUG-010 `rate_limit.py:50-54`: fail open when identity is `user:unknown`.
+- BUG-004 `calls/service.py:374+`: emit `call.queued` on single-call create
+  (or document migration to `batch.started`). Contract break — clear before
+  merge.
+- BUG-011 `calls/schemas.py:91-104`: `call_id` always null is a hard break.
+  Ship with migration note; document 200-on-replay in OpenAPI
+  (`calls/router.py:45-60` overrides status at runtime, undocumented).
+- BUG-012 `call_batches/service.py::_safe_int`: add `OverflowError` to
+  `except (TypeError, ValueError)` — `int(float('inf'))` still 500s.
+- BUG-013 `calls/schemas.py:83-88` + `service.py:405-406`: reject
+  blank-after-strip at schema (`min_length=1` lets `" "` through).
+- BUG-014 `calls/service.py:408+`: run `strip_contact_voice_overrides`
+  over batch-level metadata too (or confirm runtime never resolves voice
+  from batch metadata).

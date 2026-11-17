@@ -2,6 +2,11 @@
 // Covers call.completed, analysis.ready (outcomes{}, summary, recording) and
 // call.failed / call.no_answer envelopes.
 //
+// BUG-004: single-call path no longer emits call.queued; batch machinery emits
+// batch.started / batch.cancelled instead. Those lifecycle events are NOT
+// terminal results — they must return null here, never a tag. Only terminal
+// events below produce a CallCompletedEvent.
+//
 // TODO(prompt-owner): confirm the exact backend outcome keys/values mapped below.
 // The matcher is deliberately tolerant but matches VALUES before keys: a key
 // such as "order_confirmation" must not turn every value into "confirmed".
@@ -248,10 +253,23 @@ function candidateKeys(parsed: NonNullable<ReturnType<typeof baseParse>>): strin
   return [parsed.callId, parsed.externalId, parsed.batchId ?? ""].filter(Boolean);
 }
 
+/** Only terminal result events produce a tag. Lifecycle events (batch.started,
+ * batch.cancelled, call.queued, batch.created) return null — see BUG-004. */
+function isTerminalResultEvent(event: string): boolean {
+  const n = norm(event);
+  if (!n) return false;
+  if (n.includes("analysisready")) return true;
+  if (n.includes("callcompleted")) return true;
+  if (n.includes("callfailed") || n.includes("callnoanswer")) return true;
+  if (n.includes("failed") || n.includes("noanswer")) return true;
+  return false;
+}
+
 /** Synchronous variant for in-memory ledgers and pure tests. */
 export function toCallResult(envelope: unknown, ledger: ResultLedger): CallCompletedEvent | null {
   const parsed = baseParse(envelope);
   if (!parsed) return null;
+  if (!isTerminalResultEvent(parsed.event)) return null;
   let stored: ResultLookup | null = null;
   for (const key of candidateKeys(parsed)) {
     stored = ledger.lookup(key);
@@ -268,6 +286,7 @@ export async function toCallResultAsync(
 ): Promise<CallCompletedEvent | null> {
   const parsed = baseParse(envelope);
   if (!parsed) return null;
+  if (!isTerminalResultEvent(parsed.event)) return null;
   let stored: ResultLookup | null = null;
   for (const key of candidateKeys(parsed)) {
     stored = await ledger.lookup(key);

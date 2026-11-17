@@ -6,17 +6,30 @@ import type { TechLadderHttpClient } from "../http.js";
 import type { ApiEnvelope, Pagination } from "./envelope.js";
 
 export interface CallDetail {
-  call_id: string;
+  /** Null until the dialer assigns one (B1-a: single calls route via batches). batch_id is the stable handle. */
+  call_id: string | null;
   batch_id?: string | null;
   external_id?: string | null;
   phone_number?: string | null;
   status?: string | null;
+  /** True on 200 replay (same idempotency key); false on 202 first create. */
+  idempotent?: boolean;
+  created_at?: string | null;
+}
+
+function assertIdempotencyKey(key: string): void {
+  // BUG-013: backend degrades " " to non-idempotent instead of 422.
+  // Fail fast in the SDK so a caller that thinks it sent idempotency gets it.
+  if (!key.trim()) throw new Error("idempotency_key must not be blank");
+  if (key.length > 128) throw new Error("idempotency_key must be 1-128 chars");
 }
 
 export class CallsResource {
   constructor(private readonly http: TechLadderHttpClient) {}
 
   async create(payload: Record<string, unknown>): Promise<CallDetail> {
+    const rawKey = payload["idempotency_key"] ?? payload["idempotencyKey"];
+    if (rawKey !== undefined && rawKey !== null) assertIdempotencyKey(String(rawKey));
     const env = await this.http.request<ApiEnvelope<CallDetail>>({
       method: "POST",
       path: "/calls",
