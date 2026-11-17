@@ -4,6 +4,7 @@
 // Full shapes in techladder-sdk/docs/api.md section 2.
 
 import type { TechLadderHttpClient } from "../http.js";
+import { assertIdempotencyKey } from "../idempotency.js";
 import type { ApiEnvelope, Pagination } from "./envelope.js";
 
 export interface BatchContact {
@@ -41,12 +42,6 @@ export interface CreateBatchRequest {
 export interface IdempotentCreateBatchRequest extends CreateBatchRequest {
   /** Caller-supplied key, 1-128 chars. Same account + key returns existing batch. */
   idempotency_key: string;
-}
-
-function assertIdempotencyKey(key: string): void {
-  // Backend BUG-013: whitespace-only keys degrade to non-idempotent.
-  if (!key.trim()) throw new Error("idempotency_key must not be blank");
-  if (key.length > 128) throw new Error("idempotency_key must be 1-128 chars");
 }
 
 export interface CreateBatchResponse {

@@ -3,6 +3,7 @@
 // Shapes in techladder-sdk/docs/api.md section 3.
 
 import type { TechLadderHttpClient } from "../http.js";
+import { assertIdempotencyKey } from "../idempotency.js";
 import type { ApiEnvelope, Pagination } from "./envelope.js";
 
 export interface CallDetail {
@@ -15,13 +16,6 @@ export interface CallDetail {
   /** True on 200 replay (same idempotency key); false on 202 first create. */
   idempotent?: boolean;
   created_at?: string | null;
-}
-
-function assertIdempotencyKey(key: string): void {
-  // BUG-013: backend degrades " " to non-idempotent instead of 422.
-  // Fail fast in the SDK so a caller that thinks it sent idempotency gets it.
-  if (!key.trim()) throw new Error("idempotency_key must not be blank");
-  if (key.length > 128) throw new Error("idempotency_key must be 1-128 chars");
 }
 
 export class CallsResource {

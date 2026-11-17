@@ -10,7 +10,7 @@ export {
   toTypedError,
 } from "./errors.js";
 export type { ParsedErrorBody, TechLadderErrorOptions } from "./errors.js";
-export { buildIdempotencyKey, buildScopedIdempotencyKey } from "./idempotency.js";
+export { buildIdempotencyKey, buildScopedIdempotencyKey, assertIdempotencyKey } from "./idempotency.js";
 export { BatchesResource } from "./resources/batches.js";
 export type {
   BatchCallItem,

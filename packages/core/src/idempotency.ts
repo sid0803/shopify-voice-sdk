@@ -28,3 +28,9 @@ export function buildIdempotencyKey(source: string, eventType: string, externalI
 export function buildScopedIdempotencyKey(source: string, account: string, eventType: string, externalId: string): string {
   return buildIdempotencyKey(`${source}:${account}`, eventType, externalId);
 }
+
+/** Backend rejects blank-after-strip as non-idempotent instead of 422 — fail fast in the SDK. */
+export function assertIdempotencyKey(key: string): void {
+  if (!key.trim()) throw new Error("idempotency_key must not be blank");
+  if (key.length > 128) throw new Error("idempotency_key must be 1-128 chars");
+}
