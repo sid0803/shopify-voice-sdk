@@ -28,6 +28,30 @@ pnpm --filter app build
 
 All suites are expected green: core 29, adapter-shopify 64, adapter-webhook 4.
 
+`pnpm install` also runs each package's `prepare` (tsup) script, so `dist/`
+exists right after install — there is no separate build step to remember.
+
+## Consuming the SDK without a registry
+
+Nothing is published to npm yet, so consume the packages from a local clone.
+`pnpm install` in the clone already produced `dist/`.
+
+```bash
+# in your own project, pointing at the clone
+npm install /path/to/techladder-shopify-sdk/packages/core
+```
+
+```js
+import { TechLadderHttpClient } from "@techladder/core";
+```
+
+`npm install /path/...` and `pnpm add /path/...` copy the package, so the clone
+must have run `pnpm install` once. The git URL form is not supported for these
+packages because this is a monorepo — clone first, then install by path.
+
+Install `packages/core` and any adapter you use as separate local paths; core
+stays the single source of types and HTTP.
+
 ## Local development
 
 ```bash
