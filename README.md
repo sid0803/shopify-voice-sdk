@@ -57,29 +57,28 @@ in Connect), `TECHLADDER_WEBHOOK_TOLERANCE`, `TECHLADDER_SINGLE_CALL`,
 Set `shopify.app.toml` `application_url` / `redirect_urls` and the app
 `client_id` from the Partners app before `shopify app deploy`.
 
-## Hosting notes (owner action)
+## Hosting checklist
 
-- The v1 worker runs in-process (`ensureWorkerStarted`). Move it to a
-  long-running service or scheduled job if the web host sleeps or scales to
-  zero.
-- Mongo must be reachable by every web + worker instance; use a managed
-  replica set if the host requires transactions/change streams (none required
-  by the current code).
-- Keep the encryption key in the host's secret manager. Rotating it requires
-  re-encrypting stored settings; rotate together with any key that ever leaked.
-- Register webhooks through `shopify.app.toml` at deploy time, delete any
-  manually created store webhooks to avoid double firing, and confirm the app
-  URL is public HTTPS.
+- The v1 worker runs in-process (`ensureWorkerStarted()`), so the host must
+  stay awake: use a long-running service or scheduled job, not a host that
+  sleeps or scales to zero.
+- All web + worker instances must share one Mongo. A managed replica set
+  works; the current code needs no transactions or change streams.
+- Keep `TOKEN_ENCRYPTION_KEY` in the host's secret manager. Rotating it
+  requires re-encrypting stored settings, so rotate app credentials at the
+  same time if anything leaks.
+- Register webhooks via `shopify.app.toml` at deploy time over public HTTPS,
+  and remove any manually created store webhooks so orders don't fire twice.
 
-## Still open (not code)
+## Roadmap (tracked, not code in this repo)
 
-- Shopify Billing (flat plan first; usage billing needs a backend usage-minutes
-  endpoint).
+- Shopify Billing (flat plan first; usage billing wires up to the
+  `GET /public/usage` endpoint).
 - App Store listing, privacy policy, protected-customer-data approval.
-- Backend branch review/merge + staging deploy; a real signed
-  `analysis.ready` / `call.completed` sample; outcome-key confirmation.
-- Reconciliation is manual ("Reconcile pending calls") until a shop-list store
-  exists; missed-webhook SLA is still a backend question.
+- Backend review/merge + staging deploy; a real signed `analysis.ready` /
+  `call.completed` sample; outcome-key confirmation.
+- Automatic reconciliation (today it's the manual "Reconcile pending calls"
+  button) and a missed-webhook SLA — both backend questions.
 - History scrub + key rotation (deferred to the end intentionally).
 
 See `docs/backend-gaps.md` for backend requests and `docs/implementation-plan.md`
