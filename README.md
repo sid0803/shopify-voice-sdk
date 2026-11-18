@@ -14,14 +14,19 @@ shell; `packages/core` never imports Shopify names.
 
 ## Tests and checks
 
+Prerequisites: Node 18+ and pnpm 9 (`npm i -g pnpm@9`, or `corepack enable`). No npm publish needed — workspaces link locally after install.
+
 ```bash
-pnpm install
+git clone https://github.com/techladderai/techladder-shopify-sdk.git
+cd techladder-shopify-sdk
+pnpm install   # deterministic via pnpm-lock.yaml
+pnpm build     # builds packages/*/dist consumed by the shell
 pnpm typecheck
 pnpm test
 pnpm --filter app build
 ```
 
-All suites are expected green: core 24, adapter-shopify 57, adapter-webhook 4.
+All suites are expected green: core 29, adapter-shopify 64, adapter-webhook 4.
 
 ## Local development
 
