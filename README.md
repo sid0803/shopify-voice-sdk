@@ -14,13 +14,12 @@ shell; `packages/core` never imports Shopify names.
 
 ## Tests and checks
 
-Prerequisites: Node 18+ and pnpm 9 (`npm i -g pnpm@9`, or `corepack enable`). No npm publish needed — workspaces link locally after install.
+Prerequisites: Node 22.12+ (the Shopify app's engine floor; the packages alone need 18+) and pnpm 9 (`npm i -g pnpm@9`, or `corepack enable`). No npm publish needed — workspaces link locally after install.
 
 ```bash
 git clone https://github.com/techladderai/techladder-shopify-sdk.git
 cd techladder-shopify-sdk
-pnpm install   # deterministic via pnpm-lock.yaml
-pnpm build     # builds packages/*/dist consumed by the shell
+pnpm install   # installs deps, builds packages/*, generates the Prisma client
 pnpm typecheck
 pnpm test
 pnpm --filter app build
