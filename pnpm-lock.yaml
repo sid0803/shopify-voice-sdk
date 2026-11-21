@@ -163,6 +163,9 @@ importers:
 
   packages/adapter-zohocrm:
     dependencies:
+      mongodb:
+        specifier: ^7.9.0
+        version: 7.9.0
       zod:
         specifier: ^3.23.8
         version: 3.25.76

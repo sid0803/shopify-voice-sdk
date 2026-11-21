@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "mongodb": "^7.9.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

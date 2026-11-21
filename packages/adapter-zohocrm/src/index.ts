@@ -133,3 +133,8 @@ export * from "./client.js";
 export * from "./fieldMapper.js";
 export * from "./consent.js";
 export * from "./writeback.js";
+export * from "./stores.js";
+export * from "./queue.js";
+export { MongoZohoConnectionStore, MongoZohoEventClaim, MongoZohoLeadLedger } from "./mongo/stores.js";
+export { closeMongo, getDb } from "./mongo/client.js";
+export { decryptSecret, encryptSecret } from "./mongo/crypto.js";
