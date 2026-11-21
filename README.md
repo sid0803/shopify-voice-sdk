@@ -9,7 +9,6 @@ shell; `packages/core` never imports Shopify names.
 | --- | --- |
 | `packages/core` | HTTP client, typed errors, calls/batches/webhook-endpoint resources, idempotency, signed-webhook verification, neutral events + Zod, adapter interface |
 | `packages/adapter-webhook` | Generic webhook passthrough adapter |
-| `packages/adapter-zohocrm` | Zoho CRM adapter: lead/deal mapping, outcome write-back as Notes + fields, per-org settings |
 | `packages/adapter-shopify` | HMAC verification, order mapping, result→tag mapping, GraphQL `tagsAdd` write-back, per-shop settings, durable queue, GDPR handlers, Mongo stores with AES-256-GCM encryption |
 | `apps/shopify-app` | Deployable React Router Shopify app: OAuth/session handling, fast-ack webhooks, background worker, embedded Connect / Settings / Call-log UI |
 
@@ -26,7 +25,7 @@ pnpm test
 pnpm --filter app build
 ```
 
-All suites are expected green: core 29, adapter-shopify 64, adapter-webhook 4, adapter-zohocrm 36.
+All suites are expected green: core 29, adapter-shopify 64, adapter-webhook 4.
 
 `pnpm install` also runs each package's `prepare` (tsup) script, so `dist/`
 exists right after install — there is no separate build step to remember.
