@@ -26,7 +26,7 @@ pnpm test
 pnpm --filter app build
 ```
 
-All suites are expected green: core 29, adapter-shopify 64, adapter-webhook 4, adapter-zohocrm 14.
+All suites are expected green: core 29, adapter-shopify 64, adapter-webhook 4, adapter-zohocrm 36.
 
 `pnpm install` also runs each package's `prepare` (tsup) script, so `dist/`
 exists right after install — there is no separate build step to remember.

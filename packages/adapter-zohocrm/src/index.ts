@@ -4,10 +4,9 @@
 
 import { timingSafeEqual } from "node:crypto";
 import { InboundEventSchema } from "../../core/src/events/types.js";
-import type { CallDisposition, CallExecutionStatus } from "../../core/src/events/types.js";
-import { zohoApiBase } from "./zohoConfig.js";
 import type { AdapterContext, PlatformAdapter, RawIncomingRequest } from "../../core/src/adapter.js";
 import type { CallCompletedEvent, InboundEvent } from "../../core/src/events/types.js";
+import { performWriteback } from "./writeback.js";
 
 /** Minimal subset of a Zoho workflow webhook delivery we care about. */
 export interface ZohoPlatformEvent {
@@ -39,65 +38,6 @@ function header(headers: RawIncomingRequest["headers"], name: string): string | 
     if (k.toLowerCase() === name) return Array.isArray(v) ? v[0] : v;
   }
   return undefined;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Best-effort retry for the write-back path: network errors + 5xx, never 4xx. */
-async function fetchWithRetry(fetchImpl: typeof fetch, url: string, init: RequestInit, attempts = 3): Promise<Response> {
-  let last: unknown;
-  for (let i = 1; i <= attempts; i += 1) {
-    try {
-      const res = await fetchImpl(url, init);
-      if (res.status < 500) return res;
-      last = new Error(`Zoho responded ${res.status}`);
-    } catch (err) {
-      last = err;
-    }
-    if (i < attempts) await sleep(Math.min(1000 * 2 ** (i - 1), 4000) + Math.floor(Math.random() * 200));
-  }
-  throw last instanceof Error ? last : new Error("Zoho write-back failed");
-}
-
-// Outcome labels written to the record field and the Note title.
-// Business dispositions only — the agent never claims Notes were applied.
-export function outcomeToLabel(outcome: CallDisposition): string {
-  switch (outcome) {
-    case "confirmed": return "Confirmed";
-    case "cancelled": return "Cancelled";
-    case "modification_requested": return "Modification Requested";
-    case "callback_requested": return "Callback Requested";
-    case "human_assistance": return "Human Assistance";
-    case "uncertain": return "Uncertain";
-    case "wrong_number": return "Wrong Number";
-  }
-}
-
-/** Execution statuses never reach Main Disposition. The platform maps them to
- * labels directly when no conversation occurred. */
-export function executionStatusToLabel(status: CallExecutionStatus): string {
-  switch (status) {
-    case "completed": return "Completed";
-    case "no_answer": return "No Answer";
-    case "failed": return "Failed";
-  }
-}
-
-/**
- * Single source of truth for the outcome label a result writes. The write-back
- * and any call log both use this, so the log can never claim a different label.
- */
-export function resolveResultLabel(
-  result: Pick<CallCompletedEvent, "outcome" | "callStatus">,
-  fieldMapping: Record<string, string> = {},
-): string {
-  const base =
-    result.callStatus !== undefined && result.callStatus !== "completed"
-      ? executionStatusToLabel(result.callStatus)
-      : outcomeToLabel(result.outcome);
-  return fieldMapping[base] ?? fieldMapping[result.outcome] ?? base;
 }
 
 /** Map Zoho module -> neutral eventType. Unknown modules are ignored. */
@@ -168,36 +108,17 @@ export function createZohoAdapter(config: ZohoAdapterConfig): PlatformAdapter<Zo
       if (!token) throw new Error("Missing Zoho access token for write-back");
       const module = ctx.config.module ?? config.module;
       if (!module) throw new Error("Missing Zoho module for write-back");
-      const base = zohoApiBase(ctx.config.dataCenter || config.dataCenter);
-      const label = resolveResultLabel(result, ctx.config.fieldMapping ?? config.fieldMapping ?? {});
-      const outcomeField = ctx.config.outcomeField ?? config.outcomeField ?? "Call_Outcome";
-      const fetchImpl = config.fetchImpl ?? fetch;
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        Authorization: `Zoho-oauthtoken ${token}`,
-      };
-      const recordUrl = `${base}/${module}/${encodeURIComponent(result.externalId)}`;
-      // 1. Outcome field on the record (filterable state).
-      const patch = await fetchWithRetry(fetchImpl, recordUrl, {
-        method: "PUT",
-        headers,
-        body: JSON.stringify({ data: [{ [outcomeField]: label }] }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      await assertZohoSuccess(patch, "record update");
-      // 2. Note on the record (audit trail with summary).
-      const lines = [`Outcome: ${label}`, `Call: ${result.callId}`];
-      if (result.batchId) lines.push(`Batch: ${result.batchId}`);
-      if (result.summary) lines.push(`Summary: ${result.summary}`);
-      const note = await fetchWithRetry(fetchImpl, `${recordUrl}/Notes`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          data: [{ Note_Title: `TechLadder call — ${label}`, Note_Content: lines.join("\n") }],
-        }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      await assertZohoSuccess(note, "note create");
+      await performWriteback(
+        {
+          dataCenter: ctx.config.dataCenter || config.dataCenter,
+          getToken: () => token,
+          ...(config.fetchImpl ? { fetchImpl: config.fetchImpl } : {}),
+          module,
+          outcomeField: ctx.config.outcomeField ?? config.outcomeField ?? "Call_Outcome",
+          fieldMapping: ctx.config.fieldMapping ?? config.fieldMapping ?? {},
+        },
+        result,
+      );
     },
   };
 }
@@ -207,3 +128,8 @@ export function createZohoAdapter(config: ZohoAdapterConfig): PlatformAdapter<Zo
 export * from "./settings.js";
 export * from "./mapping.js";
 export * from "./zohoConfig.js";
+export * from "./oauth.js";
+export * from "./client.js";
+export * from "./fieldMapper.js";
+export * from "./consent.js";
+export * from "./writeback.js";
