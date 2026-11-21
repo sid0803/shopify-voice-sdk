@@ -66,6 +66,12 @@ export const ZohoSettingsSchema = z.object({
   maxRetries: z.number().int().min(0).max(5).default(0),
   /** Write the outcome back as a Note + record field. Still log when disabled. */
   notesEnabled: z.boolean().default(true),
+  /**
+   * D5 consent policy, still awaiting senior confirmation. true (default) =
+   * calls require an explicitly granted consent status; false = proceed unless
+   * an opt-out or revocation is seen. Either way opt-out/revoked always block.
+   */
+  requireExplicitConsent: z.boolean().default(true),
   /** Zoho API name of the record field receiving the outcome label. */
   outcomeField: z.string().max(64).default("Call_Outcome"),
   /** Optional merchant overrides, keyed by default outcome label. */
