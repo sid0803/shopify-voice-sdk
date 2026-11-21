@@ -46,7 +46,7 @@
 - `verifyWebhook` requires explicit `toleranceSeconds` (backend has no window, backend-gaps#1).
 - Shopify: `SHOPIFY_API_VERSION=2026-10` to match dashboard, merge-safe tag write-back (GET+PUT).
 - Idempotency: added `buildScopedIdempotencyKey` for shared-`sk_` shops; documented collision.
-- CI: secrets scan blocks `sk_live_|shpat_|shpss_|whsec_` + missing `.env` guard.
+- CI: secrets scan blocks live-looking keys (patterns in `ci.yml`) + missing `.env` guard.
 
 ## 0.1.0 (staging only, pending senior review)
 
